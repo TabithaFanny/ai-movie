@@ -8,7 +8,9 @@ import { stopPolling } from './api.js';
 import { initHelp, hideHelpModal, maybeShowHelpOnFirstUse } from './help.js';
 import { showSettingsModal, hideSettingsModal } from './global_settings.js';
 import { showNewProjectModal } from './newproject.js';
-import { undoProject, redoProject, setUndoRedoCallback, clearUndoRedo, saveProject, saveProjectSilent, exportProjectToLocal, importProjectFromLocal, enableLocalMode, disableLocalMode, reattachLocalDir, syncProjectFileToLocal } from './storage.js';
+import { undoProject, redoProject, setUndoRedoCallback, clearUndoRedo, saveProject, saveProjectSilent, enableLocalMode, disableLocalMode, reattachLocalDir, syncProjectFileToLocal } from './storage.js';
+import { showImportProjectModal } from './import.js';
+import { showExportProjectModal } from './export.js';
 import { showStatsModal, attachStatsHover } from './stats.js';
 
 let workspaceViewerInstance = null;
@@ -182,8 +184,7 @@ function hideVideoModal() {
 // ============ Init ============
 async function init() {
     const savedTheme = localStorage.getItem('aimm_theme');
-    const hour = new Date().getHours();
-    applyTheme(savedTheme ? savedTheme === 'light' : (hour >= 7 && hour < 19));
+    applyTheme(savedTheme ? savedTheme === 'light' : false);
 
     // Wire up sidebar buttons
     $('themeBtn').onclick = toggleTheme;
@@ -265,33 +266,14 @@ async function init() {
         showNewProjectModal();
     };
     $('menuOpenProjectBtn').onclick = () => { closeFileMenu(); navigateTo('projectList'); };
-    $('menuImportLocalBtn').onclick = async () => {
+    $('menuImportLocalBtn').onclick = () => {
         closeFileMenu();
-        try {
-            const proj = await importProjectFromLocal();
-            state.currentProject = proj;
-            clearUndoRedo();
-            if (state.token) await saveProject(proj);
-            showToast(`已导入项目: ${proj.title}`, 'success');
-            navigateTo('breakdown');
-        } catch (e) {
-            if (e.message !== '未选择文件') showToast(`导入失败: ${e.message}`, 'error');
-        }
+        showImportProjectModal();
     };
     $('menuSettingsBtn').onclick = () => { closeFileMenu(); showSettingsModal(); };
-    $('menuExportLocalBtn').onclick = async () => {
+    $('menuExportLocalBtn').onclick = () => {
         closeFileMenu();
-        if (!state.currentProject) { showToast('请先打开一个项目', 'info'); return; }
-        try {
-            showToast('正在导出，请选择保存目录…', 'info');
-            const result = await exportProjectToLocal(state.currentProject, (done, total, msg) => {
-                if (total > 0) showToast(`导出进度: ${done}/${total} — ${msg}`, 'info');
-            });
-            if (result.failed > 0) showToast(`导出完成: ${result.done}/${result.total} 个文件, ${result.failed} 个失败`, 'info');
-            else showToast(`导出完成: ${result.total} 个资源已保存`, 'success');
-        } catch (e) {
-            if (e.name !== 'AbortError') showToast(`导出失败: ${e.message}`, 'error');
-        }
+        showExportProjectModal();
     };
     $('menuLocalModeBtn').onclick = async () => {
         closeFileMenu();

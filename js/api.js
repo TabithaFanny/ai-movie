@@ -698,33 +698,81 @@ export async function generateSubtitles(project, mode = 'narration', onChunk) {
 
 // ---- Seedance Video ----
 export async function submitGenVideo(short, project) {
+    const normalizeImageRefUrl = (rawUrl) => {
+        const value = String(rawUrl || '').trim();
+        if (!value) return '';
+        if (value.startsWith('asset://')) return value;
+        if (/^asset-[a-zA-Z0-9-]+$/.test(value)) return `asset://${value}`;
+        return value;
+    };
+
+    const createImageRef = (url, role) => {
+        const normalizedUrl = normalizeImageRefUrl(url);
+        if (!normalizedUrl) return null;
+        return {
+            type: 'image_url',
+            url: normalizedUrl,
+            role,
+        };
+    };
+
     const images = [];
 
     // Seedance constraint: reference_image and keyframes (first_frame / last_frame) are
     // mutually exclusive. When any keyframe is set, skip all reference images.
     const useKeyframeMode = !!(short.firstFrameUrl || short.lastFrameUrl);
 
+    // Track image-to-label mapping for prompt reference line
+    const imageLabels = [];
+
     if (useKeyframeMode) {
-        if (short.firstFrameUrl) images.push({ url: short.firstFrameUrl, role: 'first_frame' });
-        if (short.lastFrameUrl) images.push({ url: short.lastFrameUrl, role: 'last_frame' });
+        const firstFrame = createImageRef(short.firstFrameUrl, 'first_frame');
+        const lastFrame = createImageRef(short.lastFrameUrl, 'last_frame');
+        if (firstFrame) images.push(firstFrame);
+        if (lastFrame) images.push(lastFrame);
     } else {
         const scene = project.scenes.find(s => s.id === short.sceneId);
-        if (scene?.imageUrl) images.push({ url: scene.imageUrl, role: 'reference_image' });
+        const sceneImage = createImageRef(scene?.imageUrl, 'reference_image');
+        if (sceneImage) {
+            images.push(sceneImage);
+            imageLabels.push(scene?.name || '场景');
+        }
         short.characterIds?.forEach(cid => {
             const ch = project.characters.find(c => c.id === cid);
             const imgUrl = (ch?.anchorVerified && ch?.anchorImageUrl) ? ch.anchorImageUrl : ch?.imageUrl;
-            if (imgUrl) images.push({ url: imgUrl, role: 'reference_image' });
+            const imageRef = createImageRef(imgUrl, 'reference_image');
+            if (imageRef) {
+                images.push(imageRef);
+                imageLabels.push(ch?.name || '角色');
+            }
         });
         (short.propIds || []).forEach(pid => {
             const pr = project.props.find(p => p.id === pid);
             const imgUrl = (pr?.anchorVerified && pr?.anchorImageUrl) ? pr.anchorImageUrl : pr?.imageUrl;
-            if (imgUrl) images.push({ url: imgUrl, role: 'reference_image' });
+            const imageRef = createImageRef(imgUrl, 'reference_image');
+            if (imageRef) {
+                images.push(imageRef);
+                imageLabels.push(pr?.name || '道具');
+            }
         });
-        if (short.imageUrls) short.imageUrls.forEach(u => images.push({ url: u, role: 'reference_image' }));
+        if (short.imageUrls) {
+            short.imageUrls.forEach(u => {
+                const imageRef = createImageRef(u, 'reference_image');
+                if (imageRef) images.push(imageRef);
+            });
+        }
     }
 
     // Build enhanced prompt with cinematography metadata
     let prompt = short.prompt || '';
+
+    // Append reference image mapping so the model knows which image is which
+    if (imageLabels.length > 0) {
+        const refLine = '参考图：' + imageLabels.map((label, i) => `${label}(图片${i + 1})`).join(', ');
+        if (!prompt.includes('参考图：')) {
+            prompt = prompt ? `${prompt}\n${refLine}` : refLine;
+        }
+    }
     if (short.enhanced && short.cameraMovement) {
         const metaParts = [];
         if (short.cameraMovement) metaParts.push(`camera ${short.cameraMovement}`);
@@ -1049,15 +1097,15 @@ export function stopPolling(taskId) {
  * Generate an image using Keepwork genImage API.
  * Mirrors MapCopilot.generateImage pattern.
  * @param {string} prompt - Image description
- * @param {Object} [options] - { width, height, provider, cacheKey, compressionRatio }
+ * @param {Object} [options] - { width, height, provider, model, compressionRatio, images }
  * @returns {Promise<string|null>} Generated image URL
  */
 async function genImage(prompt, options = {}) {
     const {
-        width = 1024,
-        height = 1024,
-        provider = 'jimeng',
-        cacheKey = 'aimovie_image_v1',
+        width = 2048,
+        height = 2048,
+        provider = 'seedream',
+        model = 'seedream-5.0-lite',
         compressionRatio = 10,
         images,
     } = options;
@@ -1066,18 +1114,24 @@ async function genImage(prompt, options = {}) {
     if (!state.token) throw new Error('请先登录');
 
     const url = 'https://api.keepwork.com/core/v0/gpt/genImage';
-    const { getGlobalImageApiKey } = await import('./global_settings.js');
+    const { getGlobalImageApiKey, getGlobalEnableImageCacheKey } = await import('./global_settings.js');
     const apiKey = getGlobalImageApiKey();
+    const enableImageCacheKey = getGlobalEnableImageCacheKey();
     const headers = {
         'Accept': '*/*',
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${state.token}`,
-        'api-cache-key': cacheKey,
     };
-    if (apiKey) headers['API_KEY'] = apiKey;
+    if (apiKey) headers['x-seedream-api-key'] = apiKey;
+    if (enableImageCacheKey) headers['api-cache-key'] = 'aimovie_image_v1';
 
-    const body = { prompt, width, height, provider, compressionRatio };
-    if (images && images.length > 0) body.images = images;
+    const body = { prompt, width, height, provider, model, compressionRatio };
+    if (images && images.length > 0) {
+        const imageUrls = images
+            .map((item) => (typeof item === 'string' ? item : item?.url))
+            .filter(Boolean);
+        if (imageUrls.length > 0) body.images = imageUrls;
+    }
 
     const t0 = Date.now();
     const response = await fetch(url, {
@@ -1087,12 +1141,12 @@ async function genImage(prompt, options = {}) {
     });
 
     if (!response.ok) {
-        recordImageCall({ label: '生成图片', model: provider, success: false, error: `HTTP ${response.status}`, durationMs: Date.now() - t0 });
+        recordImageCall({ label: '生成图片', model, success: false, error: `HTTP ${response.status}`, durationMs: Date.now() - t0 });
         throw new Error(`图片生成失败: ${response.status} ${response.statusText}`);
     }
 
     const result = await response.json();
-    recordImageCall({ label: '生成图片', model: provider, success: true, durationMs: Date.now() - t0 });
+    recordImageCall({ label: '生成图片', model, success: true, durationMs: Date.now() - t0 });
     return result.imgUrl || result.url || result.imageUrl || null;
 }
 

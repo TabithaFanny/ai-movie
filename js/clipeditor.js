@@ -608,12 +608,15 @@ export default class ClipEditor {
         if (!stage) return;
         const stageW = stage.clientWidth;
         const stageH = stage.clientHeight;
-        // Fit 16:9 canvas within available stage area
+        // Parse project ratio (e.g. '16:9', '9:16', '1:1'); fall back to 16:9
+        const ratioStr = this.project?.settings?.ratio || '16:9';
+        const [rw, rh] = ratioStr.split(':').map(Number);
+        const ratioVal = (rw && rh) ? rw / rh : 16 / 9;
         let w = stageW;
-        let h = Math.round(w * 9 / 16);
+        let h = Math.round(w / ratioVal);
         if (h > stageH && stageH > 0) {
             h = stageH;
-            w = Math.round(h * 16 / 9);
+            w = Math.round(h * ratioVal);
         }
         this.canvas.width = w;
         this.canvas.height = h;
