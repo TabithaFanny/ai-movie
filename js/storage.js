@@ -552,6 +552,65 @@ export async function clearBackups(project) {
 
 // ============ Export Project to Local Folder ============
 
+function buildLocalExportProject(project, exportOptions = {}) {
+    const options = {
+        mode: exportOptions.mode === 'custom' ? 'custom' : 'all',
+        includeCharacters: exportOptions.includeCharacters !== false,
+        includeScenes: exportOptions.includeScenes !== false,
+        includeProps: exportOptions.includeProps !== false,
+        includeShorts: exportOptions.includeShorts !== false,
+    };
+
+    const cloned = normalizeProject(JSON.parse(JSON.stringify(project || {})));
+    cloned.workspace = null;
+    cloned.projectFileName = null;
+    cloned.localMode = false;
+    cloned.localAssetMap = {};
+    cloned.localDirName = null;
+
+    if (options.mode === 'all') return cloned;
+
+    if (!options.includeCharacters) cloned.characters = [];
+    if (!options.includeScenes) cloned.scenes = [];
+    if (!options.includeProps) cloned.props = [];
+    if (!options.includeShorts) {
+        cloned.shorts = [];
+        cloned.plot = { rootNodeId: null, nodes: [] };
+        cloned.subtitles = null;
+    }
+
+    const keptCharacterIds = new Set((cloned.characters || []).map(item => item.id));
+    const keptSceneIds = new Set((cloned.scenes || []).map(item => item.id));
+    const keptPropIds = new Set((cloned.props || []).map(item => item.id));
+
+    cloned.shorts = (cloned.shorts || []).map(short => ({
+        ...short,
+        sceneId: keptSceneIds.has(short.sceneId) ? short.sceneId : null,
+        characterIds: (short.characterIds || []).filter(id => keptCharacterIds.has(id)),
+        propIds: (short.propIds || []).filter(id => keptPropIds.has(id)),
+    }));
+
+    const keptShortIds = new Set((cloned.shorts || []).map(item => item.id));
+    if (cloned.plot && Array.isArray(cloned.plot.nodes)) {
+        cloned.plot.nodes = cloned.plot.nodes.map(node => ({
+            ...node,
+            shortIds: (node.shortIds || []).filter(id => keptShortIds.has(id)),
+        }));
+        if (cloned.plot.rootNodeId && !cloned.plot.nodes.some(node => node.id === cloned.plot.rootNodeId)) {
+            cloned.plot.rootNodeId = cloned.plot.nodes[0]?.id || null;
+        }
+    }
+
+    const allowedCategories = new Set();
+    if (options.includeCharacters) allowedCategories.add('characters');
+    if (options.includeScenes) allowedCategories.add('scenes');
+    if (options.includeProps) allowedCategories.add('props');
+    if (options.includeShorts) allowedCategories.add('shorts');
+    cloned.folders = (cloned.folders || []).filter(folder => allowedCategories.has(folder.category));
+
+    return normalizeProject(cloned);
+}
+
 function collectProjectUrls(project) {
     const urls = [];
     const seen = new Set();
@@ -608,6 +667,20 @@ function collectProjectUrls(project) {
     return urls;
 }
 
+export function summarizeLocalExport(project, exportOptions = {}) {
+    const exportProject = buildLocalExportProject(project, exportOptions);
+    return {
+        project: exportProject,
+        counts: {
+            characters: exportProject.characters?.length || 0,
+            scenes: exportProject.scenes?.length || 0,
+            props: exportProject.props?.length || 0,
+            shorts: exportProject.shorts?.length || 0,
+        },
+        assets: collectProjectUrls(exportProject),
+    };
+}
+
 async function getOrCreateSubDir(dirHandle, subPath) {
     const parts = subPath.split('/').filter(Boolean);
     let current = dirHandle;
@@ -626,7 +699,7 @@ async function writeFileToDir(dirHandle, subfolder, filename, blob) {
     await writable.close();
 }
 
-export async function exportProjectToLocal(project, onProgress) {
+export async function exportProjectToLocal(project, onProgress, exportOptions = {}) {
     if (!project) throw new Error('没有打开的项目');
 
     if (!('showDirectoryPicker' in window)) {
@@ -634,15 +707,20 @@ export async function exportProjectToLocal(project, onProgress) {
     }
 
     const dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+    const shouldDownloadAssets = exportOptions.downloadAssets !== false;
+    const { project: exportProject, assets } = summarizeLocalExport(project, exportOptions);
 
     // 1. Save workspace file (project JSON)
-    const projectJson = buildProjectMarkdown(project);
-    const projectFileName = getProjectFileName(project) || `${project.title || 'project'}.aimovie.json`;
+    const projectJson = buildProjectMarkdown(exportProject);
+    const projectFileName = getProjectFileName(exportProject) || `${exportProject.title || 'project'}.aimovie.json`;
     await writeFileToDir(dirHandle, '', projectFileName.replace(/\.md$/, '.json'), new Blob([projectJson], { type: 'application/json' }));
     if (onProgress) onProgress(0, 0, '已保存项目文件');
 
+    if (!shouldDownloadAssets) {
+        return { total: assets.length, done: 0, failed: 0, skippedAssets: assets.length, downloadAssets: false };
+    }
+
     // 2. Collect all asset URLs
-    const assets = collectProjectUrls(project);
     const total = assets.length;
     let done = 0;
     let failed = 0;
@@ -662,35 +740,63 @@ export async function exportProjectToLocal(project, onProgress) {
         done++;
     }
 
-    return { total, done, failed };
+    return { total, done, failed, skippedAssets: 0, downloadAssets: true };
 }
 
-export async function importProjectFromLocal() {
+export function parseLocalProjectText(text) {
+    try {
+        const parsed = JSON.parse(text);
+        const project = parsed?.project || parsed;
+        if (!project || (!project.title && !project.shorts && !project.characters && !project.scenes && !project.props)) {
+            throw new Error('无法识别的项目文件格式');
+        }
+        return normalizeProject(project);
+    } catch (e) {
+        throw new Error('文件解析失败: ' + e.message);
+    }
+}
+
+export function cloneImportedProject(project) {
+    const cloned = JSON.parse(JSON.stringify(project || {}));
+    cloned.id = crypto.randomUUID();
+    cloned.createdAt = Date.now();
+    cloned.updatedAt = Date.now();
+    cloned.workspace = null;
+    cloned.projectFileName = null;
+    cloned.localMode = false;
+    cloned.localAssetMap = {};
+    cloned.localDirName = null;
+    return normalizeProject(cloned);
+}
+
+export async function pickProjectFromLocal() {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.json,.md';
+    input.accept = '.json,.md,.aimovie,.aimovie.json';
     return new Promise((resolve, reject) => {
         input.onchange = async () => {
             const file = input.files?.[0];
-            if (!file) { reject(new Error('未选择文件')); return; }
+            if (!file) {
+                reject(new Error('未选择文件'));
+                return;
+            }
             try {
                 const text = await file.text();
-                const parsed = JSON.parse(text);
-                const project = parsed?.project || parsed;
-                if (!project || (!project.title && !project.shorts)) {
-                    reject(new Error('无法识别的项目文件格式')); return;
-                }
-                project.id = crypto.randomUUID();
-                project.createdAt = Date.now();
-                project.updatedAt = Date.now();
-                project.projectFileName = null;
-                resolve(normalizeProject(project));
+                resolve({
+                    file,
+                    project: parseLocalProjectText(text),
+                });
             } catch (e) {
-                reject(new Error('文件解析失败: ' + e.message));
+                reject(e);
             }
         };
         input.click();
     });
+}
+
+export async function importProjectFromLocal() {
+    const { project } = await pickProjectFromLocal();
+    return cloneImportedProject(project);
 }
 
 // ============ Local Mode Engine ============

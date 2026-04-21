@@ -81,6 +81,13 @@ export const CONFIG = {
             llmStyleKeywords: 'photorealistic live-action, 3D character, skin pores, studio lighting, cinematic',
         },
         {
+            value: 'live-action',
+            label: '真人',
+            promptSuffix: 'live-action real person, real human actor, natural skin texture and blemishes, authentic facial anatomy, cinematic photography, natural lighting, shallow depth of field, anamorphic lens, avoid CGI look, avoid jitter, avoid bent limbs, avoid identity drift',
+            llmStyleNote: 'Style: live-action with real human actors, authentic facial anatomy, natural skin texture and blemishes, cinematic photography, natural lighting, shallow depth of field, anamorphic lens bokeh\nForbidden styles: CGI, 3D render, cartoon, chibi, cel-shaded, anime flat coloring, painterly, low-poly',
+            llmStyleKeywords: 'live-action real person, human actor, authentic facial anatomy, cinematic photography',
+        },
+        {
             value: '2d-anime',
             label: '2D 动画',
             promptSuffix: '2D anime style, cel-shaded, clean line art, vibrant flat colors, anime aesthetics, avoid 3D rendering, avoid photorealism',

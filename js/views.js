@@ -24,6 +24,20 @@ let _mp4ToWebpInstance = null;
 
 function isMobile() { return window.innerWidth <= 768; }
 
+function isAssetLibraryUrl(url) {
+    return typeof url === 'string' && url.trim().startsWith('asset://');
+}
+
+function normalizeVirtualPortraitRef(rawValue) {
+    const raw = String(rawValue || '').trim();
+    if (!raw) return '';
+    if (raw.startsWith('asset://')) {
+        const id = raw.slice('asset://'.length).trim();
+        return /^asset-[a-zA-Z0-9-]+$/.test(id) ? `asset://${id}` : '';
+    }
+    return /^asset-[a-zA-Z0-9-]+$/.test(raw) ? `asset://${raw}` : '';
+}
+
 function updateMobileBottomBar(view) {
     const mapping = { breakdown: 'mobTabBreakdown', generation: 'mobTabGenerate', preview: 'mobTabPreview' };
     document.querySelectorAll('.mob-tab').forEach(t => t.classList.remove('active'));
@@ -1597,6 +1611,8 @@ function renderCharacterDetail(panel, proj, id) {
     const c = proj.characters.find(x => x.id === id);
     if (!c) return;
     const cFolder = c.folderId && (proj.folders || []).find(f => f.id === c.folderId) || null;
+    const isAssetRef = isAssetLibraryUrl(c.imageUrl);
+    const assetRefId = isAssetRef ? c.imageUrl.replace(/^asset:\/\//, '') : '';
     const needsDetail = !c.description || c.description.length < 80;
     const traitsHTML = c.visualTraits ? `
         <div>
@@ -1617,13 +1633,26 @@ function renderCharacterDetail(panel, proj, id) {
                 <div>
                     <label class="text-xs" style="color:var(--text-muted)">参考图片 (锚点)</label>
                     <div class="mt-1 flex items-center gap-3">
-                        ${c.imageUrl ? `<img src="${escapeHtml(resolveUrl(c.imageUrl))}" class="img-thumb${c.anchorVerified ? ' anchor-verified' : ''}" onclick="document.getElementById('imgPreviewSrc').src='${escapeHtml(resolveUrl(c.imageUrl))}';document.getElementById('imgPreview').classList.remove('hidden')">` : ''}
+                        ${c.imageUrl
+                            ? (isAssetRef
+                                ? `<div class="img-thumb${c.anchorVerified ? ' anchor-verified' : ''}" style="display:flex;align-items:center;justify-content:center;flex-direction:column;gap:3px;background:var(--bg-panel)"><span style="font-size:10px;color:var(--text-muted)">虚拟人像</span><span style="font-size:9px;color:var(--text-faint);max-width:56px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escapeHtml(assetRefId)}">${escapeHtml(assetRefId)}</span></div>`
+                                : `<img src="${escapeHtml(resolveUrl(c.imageUrl))}" class="img-thumb${c.anchorVerified ? ' anchor-verified' : ''}" onclick="document.getElementById('imgPreviewSrc').src='${escapeHtml(resolveUrl(c.imageUrl))}';document.getElementById('imgPreview').classList.remove('hidden')">`)
+                            : ''}
                         <label class="upload-zone" style="width:60px;height:60px;flex-shrink:0;cursor:pointer">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                             <input type="file" accept="image/*" class="hidden" id="charImageInput">
                         </label>
                         ${c.imageUrl ? `<button class="btn-danger" id="removeCharImg">移除</button>` : ''}
                         <button class="btn-secondary" id="aiGenCharImgBtn" title="根据描述AI生成角色图片">🎨 AI生成</button>
+                    </div>
+                    <div class="mt-2 card-flat" style="padding:10px">
+                        <div class="text-xs mb-2" style="color:var(--text-muted)">导入虚拟人像 (Doubao)</div>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <input id="charVirtualAssetIdInput" class="modal-input" style="max-width:360px" placeholder="asset-20260224202240-qn6zg 或 asset://asset-..." value="${escapeHtml(assetRefId)}">
+                            <button class="btn-secondary" id="importCharVirtualAssetBtn">导入ID</button>
+                            <button class="btn-secondary" id="openVirtualAssetHelpBtn" title="打开文档获取虚拟人像ID">帮助</button>
+                        </div>
+                        <div class="text-xs mt-1" style="color:var(--text-faint)">提交时将使用 asset://ID 作为 reference_image。</div>
                     </div>
                     ${renderImageCandidatesHTML(c)}
                     ${c.imageUrl ? `
@@ -1668,6 +1697,22 @@ function renderCharacterDetail(panel, proj, id) {
             await saveProject(proj);
             renderDetailPanel(id, 'character');
         }
+    };
+    $('importCharVirtualAssetBtn').onclick = async () => {
+        const raw = $('charVirtualAssetIdInput')?.value || '';
+        const normalized = normalizeVirtualPortraitRef(raw);
+        if (!normalized) {
+            showToast('请输入有效ID，例如 asset-20260224202240-qn6zg', 'error');
+            return;
+        }
+        preserveImageCandidate(c);
+        addImageCandidate(c, normalized, null);
+        await saveProject(proj);
+        showToast('已导入虚拟人像ID', 'success');
+        renderDetailPanel(id, 'character');
+    };
+    $('openVirtualAssetHelpBtn').onclick = () => {
+        window.open('https://www.volcengine.com/docs/82379/2223965?lang=zh', '_blank', 'noopener,noreferrer');
     };
     if ($('removeCharImg')) $('removeCharImg').onclick = async () => {
         c.imageUrl = null;
@@ -1983,7 +2028,11 @@ function renderShortDetail(panel, proj, id) {
                         ${proj.characters.map(c => `
                             <label class="flex items-center gap-1 text-xs cursor-pointer px-2 py-1 rounded" style="background:var(--bg-pill)">
                                 <input type="checkbox" value="${c.id}" ${sh.characterIds.includes(c.id) ? 'checked' : ''} class="shortCharCheck" style="accent-color:var(--accent)">
-                                ${c.imageUrl ? `<img src="${escapeHtml(resolveUrl(c.imageUrl))}" style="width:24px;height:24px;border-radius:4px;object-fit:cover;border:1px solid var(--border-card);cursor:pointer" onclick="event.preventDefault();document.getElementById('imgPreviewSrc').src='${escapeHtml(resolveUrl(c.imageUrl))}';document.getElementById('imgPreview').classList.remove('hidden')">` : ''}
+                                ${c.imageUrl
+                                    ? (isAssetLibraryUrl(c.imageUrl)
+                                        ? `<span style="width:24px;height:24px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;background:var(--bg-panel);border:1px dashed var(--border-card);font-size:11px;color:var(--text-muted)" title="已知资产: ${escapeHtml(c.imageUrl)}">🖼️</span>`
+                                        : `<img src="${escapeHtml(resolveUrl(c.imageUrl))}" style="width:24px;height:24px;border-radius:4px;object-fit:cover;border:1px solid var(--border-card);cursor:pointer" onclick="event.preventDefault();document.getElementById('imgPreviewSrc').src='${escapeHtml(resolveUrl(c.imageUrl))}';document.getElementById('imgPreview').classList.remove('hidden')">`)
+                                    : ''}
                                 ${escapeHtml(c.name)}
                             </label>`).join('')}
                     </div>
@@ -2976,9 +3025,13 @@ function renderImageCandidatesHTML(item) {
                 const isActive = c.url === item.imageUrl;
                 const label = `v${i + 1}`;
                 const date = c.createdAt ? new Date(c.createdAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+                const isAssetRef = typeof c.url === 'string' && c.url.startsWith('asset://');
+                const assetId = isAssetRef ? c.url.replace(/^asset:\/\//, '') : '';
                 return `<div class="flex flex-col items-center gap-1 flex-shrink-0" style="width:68px">
                     <div class="cursor-pointer rounded-lg overflow-hidden" style="position:relative;width:60px;height:60px;border:2px solid ${isActive ? 'var(--accent)' : 'var(--border-card)'}" data-img-candidate-url="${escapeHtml(c.url)}" data-img-candidate-path="${escapeHtml(c.path || '')}">
-                        <img src="${escapeHtml(resolveUrl(c.url))}" class="w-full h-full" style="object-fit:cover" onerror="this.onerror=null;this.parentElement.innerHTML='<div style=\\'display:flex;align-items:center;justify-content:center;height:100%;font-size:10px;color:var(--text-faint)\\'>失败</div>'">
+                        ${isAssetRef
+                            ? `<div style="display:flex;align-items:center;justify-content:center;flex-direction:column;height:100%;padding:4px;background:var(--bg-panel)"><span style="font-size:10px;color:var(--text-muted)">虚拟人像</span><span style="font-size:9px;color:var(--text-faint);max-width:52px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escapeHtml(assetId)}">${escapeHtml(assetId)}</span></div>`
+                            : `<img src="${escapeHtml(resolveUrl(c.url))}" class="w-full h-full" style="object-fit:cover" onerror="this.onerror=null;this.parentElement.innerHTML='<div style=\\'display:flex;align-items:center;justify-content:center;height:100%;font-size:10px;color:var(--text-faint)\\'>不可预览</div>'">`}
                         ${isActive ? '<div style="position:absolute;top:2px;right:2px;background:var(--accent);color:white;font-size:9px;padding:1px 4px;border-radius:4px;font-weight:700">当前</div>' : ''}
                     </div>
                     <span class="text-xs" style="color:var(--text-faint)">${label}</span>

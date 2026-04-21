@@ -22,6 +22,7 @@ const DEFAULTS = {
     imageApiKey: '',
     videoApiKey: '',
     promptPreset: 'zh',
+    enableImageCacheKey: false,
 };
 
 let _settings = null;
@@ -59,6 +60,10 @@ export function getGlobalVideoApiKey() {
 
 export function getGlobalPromptPreset() {
     return loadGlobalSettings().promptPreset || 'zh';
+}
+
+export function getGlobalEnableImageCacheKey() {
+    return !!loadGlobalSettings().enableImageCacheKey;
 }
 
 // ============ Settings Modal ============
@@ -101,6 +106,10 @@ function ensureModal() {
                 <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:6px">Video API Key <span style="color:var(--text-muted);font-size:11px">(可选，视频生成)</span></label>
                 <input id="globalVideoApiKeyInput" type="password" class="modal-input" placeholder="留空则使用默认" style="width:100%;box-sizing:border-box" />
             </div>
+            <label style="display:flex;align-items:center;gap:8px;margin-bottom:16px;font-size:12px;color:var(--text-secondary);cursor:pointer">
+                <input id="globalEnableImageCacheKeyInput" type="checkbox" style="accent-color:#10b981">
+                <span>启用图片 cacheKey <span style="color:var(--text-muted);font-size:11px">(默认关闭，开启后相同提示词可能命中缓存)</span></span>
+            </label>
             <div style="display:flex;justify-content:flex-end;gap:8px">
                 <button id="globalSettingsSave" class="btn-primary" style="padding:6px 16px;font-size:13px">保存</button>
             </div>
@@ -116,7 +125,8 @@ function ensureModal() {
         const newImageApiKey = modalEl.querySelector('#globalImageApiKeyInput').value.trim();
         const newVideoApiKey = modalEl.querySelector('#globalVideoApiKeyInput').value.trim();
         const newPromptPreset = modalEl.querySelector('#globalPromptPresetSelect').value;
-        saveGlobalSettings({ ...loadGlobalSettings(), llmModel: newModel, llmApiKey: newLLMApiKey, imageApiKey: newImageApiKey, videoApiKey: newVideoApiKey, promptPreset: newPromptPreset });
+        const enableImageCacheKey = !!modalEl.querySelector('#globalEnableImageCacheKeyInput').checked;
+        saveGlobalSettings({ ...loadGlobalSettings(), llmModel: newModel, llmApiKey: newLLMApiKey, imageApiKey: newImageApiKey, videoApiKey: newVideoApiKey, promptPreset: newPromptPreset, enableImageCacheKey });
         hideSettingsModal();
     };
 
@@ -131,6 +141,7 @@ export function showSettingsModal() {
     modal.querySelector('#globalLLMApiKeyInput').value = settings.llmApiKey || '';
     modal.querySelector('#globalImageApiKeyInput').value = settings.imageApiKey || '';
     modal.querySelector('#globalVideoApiKeyInput').value = settings.videoApiKey || '';
+    modal.querySelector('#globalEnableImageCacheKeyInput').checked = !!settings.enableImageCacheKey;
     modal.style.display = 'flex';
 }
 
