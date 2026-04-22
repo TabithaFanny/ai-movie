@@ -5,7 +5,7 @@ import { saveProject, clearUndoRedo } from './storage.js';
 import { navigateTo } from './views.js';
 import { showToast, $ } from './utils.js';
 import { CONFIG } from './config.js';
-import { getPromptPresetOptions } from './prompts.js';
+import { getPromptPresetOptions, getAllPromptPresetOptions } from './prompts.js';
 import { getGlobalPromptPreset } from './global_settings.js';
 
 
@@ -141,6 +141,30 @@ function ensureModal() {
         const custom = modalEl.querySelector('#newProjCustomRace');
         custom.classList.toggle('hidden', modalEl.querySelector('#newProjRacePreset').value !== 'custom');
     };
+
+    // Load user-defined presets into the prompt preset dropdown on focus
+    const ppSelect = modalEl.querySelector('#newProjPromptPreset');
+    let _newProjUserPresetsLoaded = false;
+    const loadNewProjUserPresets = async () => {
+        if (_newProjUserPresetsLoaded) return;
+        _newProjUserPresetsLoaded = true;
+        try {
+            const allOpts = await getAllPromptPresetOptions();
+            const userOpts = allOpts.filter(o => o.isUser);
+            ppSelect.querySelectorAll('option[data-user]').forEach(o => o.remove());
+            userOpts.forEach(o => {
+                const opt = document.createElement('option');
+                opt.value = o.value;
+                opt.textContent = o.label;
+                opt.setAttribute('data-user', '1');
+                ppSelect.appendChild(opt);
+            });
+        } catch (e) {
+            console.warn('[AIMM] Failed to load user presets in new project modal:', e);
+        }
+    };
+    ppSelect.addEventListener('focus', loadNewProjUserPresets, { once: true });
+    ppSelect.addEventListener('mousedown', loadNewProjUserPresets, { once: true });
 
     return modalEl;
 }

@@ -1,7 +1,7 @@
 // ============ API: LLM, Seedance, Upload ============
 
 import { CONFIG, getLanguageInstruction, getStylePreset, getEnvPreset, getRacePreset } from './config.js';
-import { getPrompt } from './prompts.js';
+import { getPrompt, ensurePresetLoaded } from './prompts.js';
 import { state, sdk } from './state.js';
 import { showToast } from './utils.js';
 import { getProjectAssetFolder, getProjectWorkspace, getProjectWorkspaceStore, updateTaskLogEntry, saveAssetToLocal } from './storage.js';
@@ -323,6 +323,7 @@ export async function analyzeScript(script, totalDuration, onChunk, langCode, ep
     if (customPrompt) {
         return await llmChatStream(customPrompt, `Total movie duration: ${totalDuration} minutes.${episodeCount > 1 ? ` Total episodes: ${episodeCount}.` : ''}\n\nScript:\n${script}`, onChunk, '分析剧本');
     }
+    await ensurePresetLoaded(promptPreset || getGlobalPromptPreset());
     const { systemPrompt, userMsg } = getAnalyzeScriptPrompt(script, totalDuration, langCode, episodeCount, promptPreset, options);
     return await llmChatStream(systemPrompt, userMsg, onChunk, '分析剧本');
 }
@@ -419,6 +420,7 @@ export function getRegeneratePrompt(nodeType, project, nodeId) {
 }
 
 export async function regenerateNode(nodeType, project, nodeId, customPrompt, onChunk) {
+    await ensurePresetLoaded(getProjectPromptPreset(project));
     const prompt = customPrompt || getRegeneratePrompt(nodeType, project, nodeId);
     const userMsg = nodeType === 'synopsis'
         ? project.script?.slice(0, 3000) || 'Generate synopsis'
@@ -498,6 +500,7 @@ export function getEnhanceCharactersPrompt(project) {
 
 export async function enhanceCharacters(project, onChunk, customPrompt) {
     const pp = getProjectPromptPreset(project);
+    await ensurePresetLoaded(pp);
     const chars = project.characters || [];
     const batches = splitBatches(chars, ENHANCE_BATCH_SIZE);
     const allResults = [];
@@ -539,6 +542,7 @@ export function getEnhanceScenesPrompt(project) {
 
 export async function enhanceScenes(project, onChunk, customPrompt) {
     const pp = getProjectPromptPreset(project);
+    await ensurePresetLoaded(pp);
     const scenes = project.scenes || [];
     const batches = splitBatches(scenes, ENHANCE_BATCH_SIZE);
     const allResults = [];
@@ -580,6 +584,7 @@ export function getEnhanceShotsPrompt(project) {
 
 export async function enhanceShots(project, onChunk, customPrompt) {
     const pp = getProjectPromptPreset(project);
+    await ensurePresetLoaded(pp);
     const shorts = project.shorts || [];
     const batches = splitBatches(shorts, ENHANCE_BATCH_SIZE);
     const allResults = [];
@@ -635,6 +640,7 @@ export async function enhanceShots(project, onChunk, customPrompt) {
 // ---- Pipeline: Preflight Check ----
 export async function runPreflightAI(project, onChunk) {
     const pp = getProjectPromptPreset(project);
+    await ensurePresetLoaded(pp);
     const langInstr = getLanguageInstruction(project.settings?.narrationLanguage);
     const prompt = fillPromptTemplate(getPrompt('preflightCheck', pp), {
         characters: formatCharsForPrompt(project),
@@ -648,6 +654,7 @@ export async function runPreflightAI(project, onChunk) {
 // ---- Pipeline: Consistency Review ----
 export async function runConsistencyReview(project, onChunk) {
     const pp = getProjectPromptPreset(project);
+    await ensurePresetLoaded(pp);
     const langInstr = getLanguageInstruction(project.settings?.narrationLanguage);
     const resultsStr = (project.shorts || []).map(s => {
         return `#${s.order} status:${s.status} prompt:"${(s.prompt || '').slice(0, 100)}" videoUrl:${s.videoUrl ? 'yes' : 'no'}`;

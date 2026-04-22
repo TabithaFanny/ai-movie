@@ -22,6 +22,7 @@ export const state = {
         'props-group': false,
         'scenes-group': false,
         'shorts-group': true,
+        'trash-group': false,
     },
     apiBase: localStorage.getItem('aimm_api_base') || 'https://api.keepwork.com/core/v0/gpt',
     sidebarWidth: parseInt(localStorage.getItem('aimm_sidebar_width') || '280', 10),
@@ -41,6 +42,7 @@ export function resetTreeExpanded() {
         'props-group': false,
         'scenes-group': false,
         'shorts-group': true,
+        'trash-group': false,
     };
     state.selectedNodeId = 'script-section';
     state.selectedNodeType = 'script-section';
@@ -217,6 +219,19 @@ export function normalizeProject(project) {
     project.localAssetMap = project.localAssetMap || {};  // CDN URL → local relative path
     project.localDirName = project.localDirName || null;  // hint: last used folder name
     project.videoGenUsage = project.videoGenUsage || { totalTasks: 0, succeededTasks: 0, failedTasks: 0, totalDuration: 0, details: [] };
+    project.trash = (project.trash || []).map(t => ({
+        type: t?.type || 'image',  // 'image' | 'video'
+        url: t?.url || null,
+        path: t?.path || null,
+        sourceUrl: t?.sourceUrl || null,
+        createdAt: t?.createdAt || null,
+        deletedAt: t?.deletedAt || new Date().toISOString(),
+        fromId: t?.fromId || null,
+        fromName: t?.fromName || '',
+        fromType: t?.fromType || '',
+        settings: t?.settings || null,
+        ...t,
+    }));
     project.subtitles = normalizeSubtitles(project.subtitles);
     project.isInteractive = project.isInteractive === true;
     project.plot = normalizePlot(project.plot);

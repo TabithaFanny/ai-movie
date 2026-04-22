@@ -1,6 +1,7 @@
 // ============ Plot & Settings Detail View ============
 
-import { CONFIG, getPromptPresetOptions } from './config.js';
+import { CONFIG, getPromptPresetOptions, getAllPromptPresetOptions } from './config.js';
+import { openPromptsEditor } from './promptsEditor.js';
 import { state, getSupportedVideoModels } from './state.js';
 import { escapeHtml, $, showToast } from './utils.js';
 import { saveProject } from './storage.js';
@@ -125,6 +126,7 @@ export function renderPlotSettings(panel, proj, { onAnalyze, onSave }) {
                         ${promptPresetOptions.map(o => `<option value="${o.value}" ${currentPromptPreset === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}
                     </select>
                     <span class="text-xs" style="color:var(--text-faint)">(覆盖全局设置)</span>
+                    <button id="openPromptsEditorBtn" class="btn-secondary text-xs" style="padding:3px 8px" title="打开提示词编辑器，查看和编辑提示词模板">📝 提示词编辑器</button>
                 </div>
 
                 <!-- Subtitle generation options for AI script analysis -->
@@ -182,4 +184,54 @@ export function renderPlotSettings(panel, proj, { onAnalyze, onSave }) {
     };
     if ($('analyzeBtn')) $('analyzeBtn').onclick = () => { if (onAnalyze) onAnalyze(); };
     if ($('saveDraftBtn')) $('saveDraftBtn').onclick = async () => { if (onSave) onSave(); };
+
+    // Load user-defined presets into the dropdown on focus
+    const presetSelect = $('settingPromptPresetInline');
+    let _userPresetsLoaded = false;
+
+    const refreshUserPresetOptions = async () => {
+        if (!presetSelect) return;
+        try {
+            const allOpts = await getAllPromptPresetOptions();
+            const userOpts = allOpts.filter(o => o.isUser);
+            presetSelect.querySelectorAll('option[data-user]').forEach(o => o.remove());
+            userOpts.forEach(o => {
+                const opt = document.createElement('option');
+                opt.value = o.value;
+                opt.textContent = o.label;
+                opt.setAttribute('data-user', '1');
+                if (currentPromptPreset === o.value) opt.selected = true;
+                presetSelect.appendChild(opt);
+            });
+        } catch (e) {
+            console.warn('[AIMM] Failed to load user presets:', e);
+        }
+    };
+
+    if (presetSelect) {
+        const loadUserOptions = async () => {
+            if (_userPresetsLoaded) return;
+            _userPresetsLoaded = true;
+            await refreshUserPresetOptions();
+        };
+        presetSelect.addEventListener('focus', loadUserOptions, { once: true });
+        presetSelect.addEventListener('mousedown', loadUserOptions, { once: true });
+        // Also load immediately if current value is a user preset
+        if (currentPromptPreset.startsWith('user:')) loadUserOptions();
+    }
+
+    // Open prompts editor
+    if ($('openPromptsEditorBtn')) $('openPromptsEditorBtn').onclick = () => {
+        const currentKey = presetSelect?.value || 'zh';
+        openPromptsEditor(currentKey, async (newKey) => {
+            // Callback after editor saves: refresh dropdown and optionally select new key
+            _userPresetsLoaded = false;
+            await refreshUserPresetOptions();
+            if (newKey && presetSelect) {
+                presetSelect.value = newKey;
+                presetSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            _userPresetsLoaded = true;
+        });
+    };
 }

@@ -12,6 +12,7 @@ import { undoProject, redoProject, setUndoRedoCallback, clearUndoRedo, saveProje
 import { showImportProjectModal } from './import.js';
 import { showExportProjectModal } from './export.js';
 import { showStatsModal, attachStatsHover } from './stats.js';
+import { initBuiltinPresets } from './prompts.js';
 
 let workspaceViewerInstance = null;
 
@@ -185,6 +186,10 @@ function hideVideoModal() {
 async function init() {
     const savedTheme = localStorage.getItem('aimm_theme');
     applyTheme(savedTheme ? savedTheme === 'light' : false);
+
+    // Load built-in prompt presets from AIMovieMakerWorkspace/prompts/*.md.
+    // Must run before any getPrompt() call (which is synchronous).
+    try { await initBuiltinPresets(); } catch (e) { console.warn('[init] initBuiltinPresets failed:', e); }
 
     // Load global settings (API keys + model defaults) before any API call.
     try { await initGlobalSettings(); } catch (e) { console.warn('[init] initGlobalSettings failed:', e); }

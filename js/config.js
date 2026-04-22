@@ -1,6 +1,6 @@
 // ============ Constants & Configuration ============
 
-export { PROMPTS, PROMPT_PRESETS, getPrompt, getPromptTaskNames, getPromptPresetOptions } from './prompts.js';
+export { PROMPTS, PROMPT_PRESETS, getPrompt, getPromptTaskNames, getPromptPresetOptions, getAllPromptPresetOptions, loadUserPresets, saveUserPreset, deleteUserPreset, getPresetByKey } from './prompts.js';
 
 export const CONFIG = {
     REMOTE_PAGE: 'aiMovieMaker',

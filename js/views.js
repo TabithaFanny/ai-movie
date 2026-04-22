@@ -5,6 +5,8 @@ import { state, createProject, linkBreakdown, PIPELINE_STAGES, runPreflight, get
 import { escapeHtml, showToast, $, truncate, resolveUrl } from './utils.js';
 import { saveProject, saveProjectSilent, loadProjectList, loadProject, deleteProjectRemote, saveProjectList, backupProject, listBackups, loadBackup, clearBackups, clearUndoRedo, loadTaskLog, saveAssetToLocal, syncProjectFileToLocal, reattachLocalDir } from './storage.js';
 import { analyzeScript, getAnalyzeScriptPrompt, saveProjectImageAsset, uploadTempVideo, uploadTempAudio, uploadTempImage, submitGenVideo, startPolling, stopPolling, getRegeneratePrompt, regenerateNode, generateCharacterImage, generateSceneImage, generatePropImage, enhanceCharacters, getEnhanceCharactersPrompt, enhanceScenes, getEnhanceScenesPrompt, enhanceShots, getEnhanceShotsPrompt, runPreflightAI, runConsistencyReview, generateShotPicturebookImage, generateSubtitles, genImage as genImageDirect } from './api.js';
+import { ensurePresetLoaded } from './prompts.js';
+import { getGlobalPromptPreset } from './global_settings.js';
 import { buildTree, renderTreeHTML, attachTreeEvents, isFolder, getCategoryFromType, getItemType } from './tree.js';
 import ClipEditor from './clipeditor.js';
 import Mp4ToWebp from './mp4ToWebp.js';
@@ -673,6 +675,7 @@ async function onAnalyzeScript() {
         includeNarration: !!proj.settings?.includeNarration,
         includeDialogue: !!proj.settings?.includeDialogue,
     };
+    await ensurePresetLoaded(proj.settings?.promptPreset || getGlobalPromptPreset());
     const { systemPrompt } = getAnalyzeScriptPrompt(proj.script, proj.totalDuration, proj.settings.narrationLanguage, proj.episodeCount || 1, proj.settings?.promptPreset, subtitleOptions);
 
     const modal = $('editModal');
@@ -754,6 +757,7 @@ async function onEnhanceCharacters() {
     if (!proj.characters.length) { showToast('没有角色可增强', 'error'); return; }
     if (!state.token) { showToast('请先登录', 'error'); return; }
 
+    await ensurePresetLoaded(proj.settings?.promptPreset || getGlobalPromptPreset());
     const defaultPrompt = getEnhanceCharactersPrompt(proj);
     const modal = $('editModal');
     $('editModalTitle').textContent = '🎭 增强角色 — 丰富视觉描述';
@@ -818,6 +822,7 @@ async function onEnhanceScenes() {
     if (!proj.scenes.length) { showToast('没有场景可增强', 'error'); return; }
     if (!state.token) { showToast('请先登录', 'error'); return; }
 
+    await ensurePresetLoaded(proj.settings?.promptPreset || getGlobalPromptPreset());
     const defaultPrompt = getEnhanceScenesPrompt(proj);
     const modal = $('editModal');
     $('editModalTitle').textContent = '🏔️ 增强场景 — 丰富环境描述';
@@ -882,6 +887,7 @@ async function onEnhanceShots() {
     if (!proj.shorts.length) { showToast('没有分镜可增强', 'error'); return; }
     if (!state.token) { showToast('请先登录', 'error'); return; }
 
+    await ensurePresetLoaded(proj.settings?.promptPreset || getGlobalPromptPreset());
     const defaultPrompt = getEnhanceShotsPrompt(proj);
     const modal = $('editModal');
     $('editModalTitle').textContent = '🎬 增强分镜 — 添加镜头语言';
@@ -1212,8 +1218,14 @@ function onTreeSelect(nodeId, nodeType, isToggle) {
 
 function onTreeRegenerate(nodeId, nodeType) {
     const proj = state.currentProject;
-    const prompt = getRegeneratePrompt(nodeType, proj, nodeId);
-    showRegenModal(nodeId, nodeType, prompt);
+    (async () => {
+        await ensurePresetLoaded(proj.settings?.promptPreset || getGlobalPromptPreset());
+        const prompt = getRegeneratePrompt(nodeType, proj, nodeId);
+        showRegenModal(nodeId, nodeType, prompt);
+    })().catch(err => {
+        console.warn('[views] onTreeRegenerate failed:', err);
+        showToast(`准备提示词失败: ${err.message || err}`, 'error');
+    });
 }
 
 // ============ Context Menu & Folder Operations ============
@@ -1567,6 +1579,7 @@ function renderDetailPanel(nodeId, nodeType) {
         case 'props-group': renderPropsGallery(panel, proj, galleryCallbacks('props', nodeId, nodeType)); break;
         case 'scenes-group': renderScenesGallery(panel, proj, galleryCallbacks('scenes', nodeId, nodeType)); break;
         case 'shorts-group': renderShortsGallery(panel, proj, galleryCallbacks('shorts', nodeId, nodeType)); break;
+        case 'trash-group': renderTrashView(panel, proj); break;
         default:
             if (isFolder(nodeType)) {
                 renderFolderDetail(panel, proj, nodeId, nodeType);
@@ -2201,13 +2214,13 @@ function renderShortDetail(panel, proj, id) {
                 ${(sh.videoCandidates || []).length > 1 ? `
                 <div>
                     <label class="text-xs" style="color:var(--text-muted)">历史版本 (${sh.videoCandidates.length})</label>
-                    <div class="flex gap-2 mt-1 overflow-x-auto pb-1" id="candidatesList">
+                    <div class="flex gap-2 mt-1 overflow-x-auto pb-1 pt-1" id="candidatesList" style="overflow-y:visible">
                         ${sh.videoCandidates.map((c, i) => {
                             const isActive = c.url === sh.videoUrl;
                             const label = `v${i + 1}`;
                             const date = c.createdAt ? new Date(c.createdAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
                             const settingsLabel = c.settings ? `${c.settings.model || ''} ${c.settings.duration || ''}s` : '';
-                            return `<div class="flex flex-col items-center gap-1 flex-shrink-0" style="width:100px">
+                            return `<div class="flex flex-col items-center gap-1 flex-shrink-0" style="width:100px;position:relative">
                                 <div class="relative cursor-pointer rounded-lg overflow-hidden" style="width:100px;height:60px;border:2px solid ${isActive ? 'var(--accent)' : 'var(--border-card)'}" data-candidate-url="${escapeHtml(c.url)}" data-candidate-path="${escapeHtml(c.path || '')}" data-candidate-source="${escapeHtml(c.sourceUrl || c.url)}" title="${escapeHtml(settingsLabel)}">
                                     <video src="${escapeHtml(resolveUrl(c.url))}" muted class="w-full h-full" style="object-fit:cover" preload="metadata" onerror="this.onerror=null;this.parentElement.innerHTML='<div style=\\'display:flex;align-items:center;justify-content:center;height:100%;font-size:10px;color:var(--text-faint)\\'>失败</div>'"></video>
                                     ${isActive ? '<div style="position:absolute;top:2px;right:2px;background:var(--accent);color:white;font-size:9px;padding:1px 4px;border-radius:4px;font-weight:700">当前</div>' : ''}
@@ -2215,6 +2228,7 @@ function renderShortDetail(panel, proj, id) {
                                 </div>
                                 <span class="text-xs" style="color:var(--text-faint)">${label} ${date}</span>
                                 ${settingsLabel ? `<span class="text-xs" style="color:#c084fc;font-size:9px">${escapeHtml(settingsLabel)}</span>` : ''}
+                                ${!isActive ? `<button class="vid-candidate-delete" data-vid-candidate-delete="${escapeHtml(c.url)}" title="移到回收站" style="position:absolute;top:-4px;right:-2px;background:rgba(239,68,68,0.8);color:white;border:none;border-radius:50%;width:16px;height:16px;font-size:10px;line-height:16px;text-align:center;cursor:pointer;display:none;padding:0">✕</button>` : ''}
                             </div>`;
                         }).join('')}
                     </div>
@@ -2331,8 +2345,16 @@ function renderShortDetail(panel, proj, id) {
             showToast('已移除绘本插画', 'success');
         };
     }
-    // Candidate selection
+    // Candidate selection & deletion
     if ($('candidatesList')) {
+        // Show/hide delete button on hover
+        $('candidatesList').querySelectorAll('.flex-shrink-0').forEach(wrapper => {
+            const delBtn = wrapper.querySelector('.vid-candidate-delete');
+            if (delBtn) {
+                wrapper.onmouseenter = () => delBtn.style.display = '';
+                wrapper.onmouseleave = () => delBtn.style.display = 'none';
+            }
+        });
         $('candidatesList').querySelectorAll('[data-candidate-url]').forEach(el => {
             el.onclick = async () => {
                 selectVideoCandidate(sh, el.dataset.candidateUrl);
@@ -2341,6 +2363,17 @@ function renderShortDetail(panel, proj, id) {
                 renderTreePanel();
                 attachTreeEvents($('treeContainer'), onTreeSelect, onTreeRegenerate, onTreeContextMenu);
                 showToast('已切换视频版本', 'success');
+            };
+        });
+        $('candidatesList').querySelectorAll('[data-vid-candidate-delete]').forEach(btn => {
+            btn.onclick = async (e) => {
+                e.stopPropagation();
+                deleteVideoCandidate(proj, sh, btn.dataset.vidCandidateDelete);
+                await saveProject(proj);
+                renderDetailPanel(id, 'short');
+                renderTreePanel();
+                attachTreeEvents($('treeContainer'), onTreeSelect, onTreeRegenerate, onTreeContextMenu);
+                showToast('已移到回收站', 'info');
             };
         });
     }
@@ -2992,6 +3025,56 @@ function selectVideoCandidate(short, candidateUrl) {
     short.error = null;
 }
 
+/** Delete a video candidate and move it to trash */
+function deleteVideoCandidate(proj, short, candidateUrl) {
+    const idx = (short.videoCandidates || []).findIndex(c => c.url === candidateUrl);
+    if (idx < 0) return;
+    const removed = short.videoCandidates.splice(idx, 1)[0];
+    if (!proj.trash) proj.trash = [];
+    proj.trash.push({
+        type: 'video', url: removed.url, path: removed.path || null,
+        sourceUrl: removed.sourceUrl || null, createdAt: removed.createdAt || null,
+        deletedAt: new Date().toISOString(), settings: removed.settings || null,
+        fromId: short.id, fromName: `#${short.order}`, fromType: 'short',
+    });
+    // If the active video was deleted, switch to another candidate or clear
+    if (short.videoUrl === removed.url) {
+        const next = short.videoCandidates[0] || null;
+        if (next) {
+            short.videoUrl = next.url;
+            short.videoPath = next.path || null;
+            short.sourceVideoUrl = next.sourceUrl || next.url;
+        } else {
+            short.videoUrl = null; short.videoPath = null; short.sourceVideoUrl = null;
+            short.status = 'pending';
+        }
+    }
+}
+
+/** Delete an image candidate and move it to trash */
+function deleteImageCandidate(proj, item, candidateUrl, itemName, itemType) {
+    const idx = (item.imageCandidates || []).findIndex(c => c.url === candidateUrl);
+    if (idx < 0) return;
+    const removed = item.imageCandidates.splice(idx, 1)[0];
+    if (!proj.trash) proj.trash = [];
+    proj.trash.push({
+        type: 'image', url: removed.url, path: removed.path || null,
+        sourceUrl: null, createdAt: removed.createdAt || null,
+        deletedAt: new Date().toISOString(), settings: null,
+        fromId: item.id, fromName: itemName || '', fromType: itemType || '',
+    });
+    // If the active image was deleted, switch to another candidate or clear
+    if (item.imageUrl === removed.url) {
+        const next = item.imageCandidates[0] || null;
+        if (next) {
+            item.imageUrl = next.url;
+            item.imagePath = next.path || null;
+        } else {
+            item.imageUrl = null; item.imagePath = null;
+        }
+    }
+}
+
 // ============ Image Candidates ============
 
 /** Save current image as a candidate before regeneration */
@@ -3041,14 +3124,14 @@ function renderImageCandidatesHTML(item) {
     return `
     <div>
         <label class="text-xs" style="color:var(--text-muted)">历史版本 (${candidates.length})</label>
-        <div class="flex gap-2 mt-1 overflow-x-auto pb-1" id="imgCandidatesList">
+        <div class="flex gap-2 mt-1 overflow-x-auto pb-1 pt-1" id="imgCandidatesList" style="overflow-y:visible">
             ${candidates.map((c, i) => {
                 const isActive = c.url === item.imageUrl;
                 const label = `v${i + 1}`;
                 const date = c.createdAt ? new Date(c.createdAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
                 const isAssetRef = typeof c.url === 'string' && c.url.startsWith('asset://');
                 const assetId = isAssetRef ? c.url.replace(/^asset:\/\//, '') : '';
-                return `<div class="flex flex-col items-center gap-1 flex-shrink-0" style="width:68px">
+                return `<div class="flex flex-col items-center gap-1 flex-shrink-0" style="width:68px;position:relative">
                     <div class="cursor-pointer rounded-lg overflow-hidden" style="position:relative;width:60px;height:60px;border:2px solid ${isActive ? 'var(--accent)' : 'var(--border-card)'}" data-img-candidate-url="${escapeHtml(c.url)}" data-img-candidate-path="${escapeHtml(c.path || '')}">
                         ${isAssetRef
                             ? `<div style="display:flex;align-items:center;justify-content:center;flex-direction:column;height:100%;padding:4px;background:var(--bg-panel)"><span style="font-size:10px;color:var(--text-muted)">虚拟人像</span><span style="font-size:9px;color:var(--text-faint);max-width:52px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escapeHtml(assetId)}">${escapeHtml(assetId)}</span></div>`
@@ -3056,6 +3139,7 @@ function renderImageCandidatesHTML(item) {
                         ${isActive ? '<div style="position:absolute;top:2px;right:2px;background:var(--accent);color:white;font-size:9px;padding:1px 4px;border-radius:4px;font-weight:700">当前</div>' : ''}
                     </div>
                     <span class="text-xs" style="color:var(--text-faint)">${label}</span>
+                    ${!isActive ? `<button class="img-candidate-delete" data-img-candidate-delete="${escapeHtml(c.url)}" title="移到回收站" style="position:absolute;top:-4px;right:-2px;background:rgba(239,68,68,0.8);color:white;border:none;border-radius:50%;width:16px;height:16px;font-size:10px;line-height:16px;text-align:center;cursor:pointer;display:none;padding:0">✕</button>` : ''}
                 </div>`;
             }).join('')}
         </div>
@@ -3066,6 +3150,14 @@ function renderImageCandidatesHTML(item) {
 function attachImageCandidateEvents(item, proj, nodeId, nodeType) {
     const list = $('imgCandidatesList');
     if (!list) return;
+    // Show/hide delete button on hover
+    list.querySelectorAll('.flex-shrink-0').forEach(wrapper => {
+        const delBtn = wrapper.querySelector('.img-candidate-delete');
+        if (delBtn) {
+            wrapper.onmouseenter = () => delBtn.style.display = '';
+            wrapper.onmouseleave = () => delBtn.style.display = 'none';
+        }
+    });
     list.querySelectorAll('[data-img-candidate-url]').forEach(el => {
         el.onclick = async () => {
             selectImageCandidate(item, el.dataset.imgCandidateUrl);
@@ -3074,6 +3166,105 @@ function attachImageCandidateEvents(item, proj, nodeId, nodeType) {
             renderTreePanel();
             attachTreeEvents($('treeContainer'), onTreeSelect, onTreeRegenerate, onTreeContextMenu);
             showToast('已切换图片版本', 'success');
+        };
+    });
+    list.querySelectorAll('[data-img-candidate-delete]').forEach(btn => {
+        btn.onclick = async (e) => {
+            e.stopPropagation();
+            deleteImageCandidate(proj, item, btn.dataset.imgCandidateDelete, item.name, nodeType);
+            await saveProject(proj);
+            renderDetailPanel(nodeId, nodeType);
+            renderTreePanel();
+            attachTreeEvents($('treeContainer'), onTreeSelect, onTreeRegenerate, onTreeContextMenu);
+            showToast('已移到回收站', 'info');
+        };
+    });
+}
+
+// ============ Trash / 回收站 ============
+
+function renderTrashView(panel, proj) {
+    const trash = proj.trash || [];
+    if (trash.length === 0) {
+        panel.innerHTML = `<div class="card-flat p-4 fade-in"><h3 class="text-base font-semibold mb-3">🗑️ 回收站</h3><p class="text-xs" style="color:var(--text-faint)">回收站为空</p></div>`;
+        return;
+    }
+    const sorted = [...trash].sort((a, b) => new Date(b.deletedAt || 0) - new Date(a.deletedAt || 0));
+    panel.innerHTML = `
+        <div class="card-flat p-4 fade-in">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-base font-semibold">🗑️ 回收站 (${trash.length})</h3>
+                <button class="btn-danger" id="emptyTrashBtn" style="font-size:12px">清空回收站</button>
+            </div>
+            <div class="flex flex-wrap gap-3">
+                ${sorted.map((t, i) => {
+                    const isVideo = t.type === 'video';
+                    const date = t.deletedAt ? new Date(t.deletedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+                    const fromLabel = t.fromName ? `${t.fromType === 'short' ? '分镜' : t.fromType === 'character' ? '角色' : t.fromType === 'scene' ? '场景' : t.fromType === 'prop' ? '道具' : ''} ${t.fromName}` : '';
+                    return `<div class="flex flex-col items-center gap-1" style="width:${isVideo ? '120' : '80'}px">
+                        <div class="rounded-lg overflow-hidden" style="position:relative;width:${isVideo ? '120' : '72'}px;height:${isVideo ? '72' : '72'}px;border:2px solid var(--border-card);background:var(--bg-panel)">
+                            ${isVideo
+                                ? `<video src="${escapeHtml(resolveUrl(t.url))}" muted class="w-full h-full" style="object-fit:cover" preload="metadata" onerror="this.onerror=null;this.parentElement.innerHTML='<div style=\\'display:flex;align-items:center;justify-content:center;height:100%;font-size:10px;color:var(--text-faint)\\'>失败</div>'"></video>`
+                                : (t.url && t.url.startsWith('asset://')
+                                    ? `<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:10px;color:var(--text-muted)">虚拟人像</div>`
+                                    : `<img src="${escapeHtml(resolveUrl(t.url))}" class="w-full h-full" style="object-fit:cover" onerror="this.onerror=null;this.parentElement.innerHTML='<div style=\\'display:flex;align-items:center;justify-content:center;height:100%;font-size:10px;color:var(--text-faint)\\'>不可预览</div>'">`)}
+                            <div style="position:absolute;top:2px;left:2px;background:rgba(0,0,0,0.6);color:white;font-size:8px;padding:1px 4px;border-radius:3px">${isVideo ? '🎬' : '🖼️'}</div>
+                        </div>
+                        <span class="text-xs" style="color:var(--text-faint);text-align:center;line-height:1.2">${escapeHtml(fromLabel)}</span>
+                        <span class="text-xs" style="color:var(--text-faint);font-size:9px">${date}</span>
+                        <button class="btn-secondary" data-trash-restore="${i}" style="font-size:10px;padding:2px 8px">恢复</button>
+                    </div>`;
+                }).join('')}
+            </div>
+        </div>`;
+
+    $('emptyTrashBtn').onclick = async () => {
+        if (!confirm(`确定清空回收站？(${trash.length} 个项目将永久删除)`)) return;
+        proj.trash = [];
+        await saveProject(proj);
+        renderDetailPanel('trash-group', 'trash-group');
+        renderTreePanel();
+        attachTreeEvents($('treeContainer'), onTreeSelect, onTreeRegenerate, onTreeContextMenu);
+        showToast('回收站已清空', 'success');
+    };
+
+    panel.querySelectorAll('[data-trash-restore]').forEach(btn => {
+        btn.onclick = async () => {
+            const idx = parseInt(btn.dataset.trashRestore);
+            const sortedItem = sorted[idx];
+            if (!sortedItem) return;
+            const trashIdx = trash.indexOf(sortedItem);
+            if (trashIdx < 0) return;
+            const removed = trash.splice(trashIdx, 1)[0];
+            // Try to restore to original item
+            const restoreCandidate = { url: removed.url, path: removed.path || null, sourceUrl: removed.sourceUrl || null, createdAt: removed.createdAt || null, settings: removed.settings || null };
+            if (removed.type === 'video') {
+                const short = proj.shorts.find(s => s.id === removed.fromId);
+                if (short) {
+                    if (!short.videoCandidates) short.videoCandidates = [];
+                    if (!short.videoCandidates.some(c => c.url === removed.url)) {
+                        short.videoCandidates.push(restoreCandidate);
+                    }
+                    showToast(`已恢复到 #${short.order} 的历史版本`, 'success');
+                } else {
+                    showToast('原分镜已不存在，已恢复到回收站外', 'warning');
+                }
+            } else {
+                const item = [...proj.characters, ...proj.scenes, ...proj.props].find(x => x.id === removed.fromId);
+                if (item) {
+                    if (!item.imageCandidates) item.imageCandidates = [];
+                    if (!item.imageCandidates.some(c => c.url === removed.url)) {
+                        item.imageCandidates.push(restoreCandidate);
+                    }
+                    showToast(`已恢复到 ${item.name || '原项目'} 的历史版本`, 'success');
+                } else {
+                    showToast('原项目已不存在，已恢复到回收站外', 'warning');
+                }
+            }
+            await saveProject(proj);
+            renderDetailPanel('trash-group', 'trash-group');
+            renderTreePanel();
+            attachTreeEvents($('treeContainer'), onTreeSelect, onTreeRegenerate, onTreeContextMenu);
         };
     });
 }

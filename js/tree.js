@@ -125,6 +125,16 @@ export function buildTree(project) {
         children: shortChildren, isCategory: true, category: 'shorts',
     });
 
+    // Trash / 回收站
+    const trashCount = (project.trash || []).length;
+    if (trashCount > 0) {
+        nodes.push({
+            id: 'trash-group', type: 'trash-group',
+            icon: '🗑️', label: `回收站 (${trashCount})`,
+            children: [],
+        });
+    }
+
     return nodes;
 }
 
