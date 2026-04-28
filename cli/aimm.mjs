@@ -11,6 +11,7 @@ import {
   setProjectStage,
   updateShotStatus,
 } from '../core/project.mjs';
+import { analyzeProjectDocument, buildAnalyzePrompt, getAnalysisRuntimeConfig } from '../core/analyze.mjs';
 import { generateImagesForScope, getImageRuntimeConfig } from '../core/image.mjs';
 
 function usage() {
@@ -21,6 +22,8 @@ Usage:
   aimm inspect <project.aimovie.md>
   aimm import-aimovie <input.aimovie.md> [output]
   aimm import-xlsx <storyboard.xlsx> [output]
+  aimm analyze <project.aimovie.md>
+  aimm prompt-analyze <project.aimovie.md>
   aimm set-stage <project.aimovie.md> <pipelineStage> [status]
   aimm set-shot-status <project.aimovie.md> <shotOrder> <status> [videoUrl]
   aimm gen-image <project.aimovie.md> [scope]
@@ -67,6 +70,37 @@ async function cmdImportXlsx(args) {
   const target = output || path.resolve(process.cwd(), `${title}.aimovie.md`);
   const written = await saveAimovieFile(target, doc);
   console.log(`Imported storyboard workbook: ${written}`);
+}
+
+async function cmdAnalyze(args) {
+  const [input] = args;
+  if (!input) fail('analyze requires a project file');
+  const runtime = getAnalysisRuntimeConfig();
+  if (!runtime.apiKey) fail('Missing AIMM_LLM_API_KEY or OPENAI_API_KEY for script analysis');
+  const doc = await loadAimovieFile(input);
+  const result = await analyzeProjectDocument(doc);
+  const written = await saveAimovieFile(input, doc);
+  console.log(JSON.stringify({
+    project: written,
+    title: doc.project.title,
+    promptPreset: doc.project.settings?.promptPreset || 'zh',
+    model: result.runtime.model,
+    baseUrl: result.runtime.baseUrl,
+    counts: {
+      characters: doc.project.characters.length,
+      props: doc.project.props.length,
+      scenes: doc.project.scenes.length,
+      shorts: doc.project.shorts.length,
+    },
+  }, null, 2));
+}
+
+async function cmdPromptAnalyze(args) {
+  const [input] = args;
+  if (!input) fail('prompt-analyze requires a project file');
+  const doc = await loadAimovieFile(input);
+  const prompt = await buildAnalyzePrompt(doc.project);
+  console.log(JSON.stringify(prompt, null, 2));
 }
 
 async function cmdSetStage(args) {
@@ -139,6 +173,12 @@ async function main() {
       return;
     case 'import-xlsx':
       await cmdImportXlsx(args);
+      return;
+    case 'analyze':
+      await cmdAnalyze(args);
+      return;
+    case 'prompt-analyze':
+      await cmdPromptAnalyze(args);
       return;
     case 'set-stage':
       await cmdSetStage(args);

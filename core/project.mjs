@@ -119,6 +119,117 @@ export function describeProject(document) {
   };
 }
 
+export function applyBreakdownToProject(document, breakdown) {
+  if (!document?.project) throw new Error('Project document missing');
+  const project = document.project;
+  if (breakdown.title) project.title = breakdown.title;
+  if (breakdown.synopsis) project.synopsis = breakdown.synopsis;
+
+  project.characters = (breakdown.characters || []).map(item => ({
+    id: simpleId('char'),
+    name: item.name,
+    description: item.description,
+    imageUrl: null,
+    imagePath: null,
+    anchorImageUrl: null,
+    anchorVerified: false,
+    designPrompt: null,
+    visualTraits: item.visualTraits || null,
+  }));
+
+  project.props = (breakdown.props || []).map(item => ({
+    id: simpleId('prop'),
+    name: item.name,
+    description: item.description,
+    imageUrl: null,
+    imagePath: null,
+    anchorImageUrl: null,
+    anchorVerified: false,
+    designPrompt: null,
+  }));
+
+  project.scenes = (breakdown.scenes || []).map(item => ({
+    id: simpleId('scene'),
+    name: item.name,
+    description: item.description,
+    imageUrl: null,
+    imagePath: null,
+    lighting: item.lighting || null,
+    timeOfDay: item.timeOfDay || null,
+    weather: item.weather || null,
+    mood: item.mood || null,
+  }));
+
+  const folderByEpisode = new Map();
+  project.folders = [];
+  const episodeCount = Math.max(1, Number(project.episodeCount || 1));
+  if (episodeCount > 1) {
+    for (let episode = 1; episode <= episodeCount; episode += 1) {
+      const folder = {
+        id: simpleId('folder'),
+        name: `第${episode}集`,
+        order: episode,
+        category: 'shorts',
+      };
+      folderByEpisode.set(episode, folder.id);
+      project.folders.push(folder);
+    }
+  }
+
+  const breakdownShorts = (breakdown.shorts || []).slice(0, 50);
+  project.shorts = breakdownShorts.map((item, index) => {
+    const scene = project.scenes.find(entry => entry.name === item.sceneName);
+    const characterIds = (item.characterNames || [])
+      .map(name => project.characters.find(entry => entry.name === name)?.id)
+      .filter(Boolean);
+    const propIds = (item.propNames || [])
+      .map(name => project.props.find(entry => entry.name === name)?.id)
+      .filter(Boolean);
+    const episode = Number(item.episode || 0);
+
+    return {
+      id: simpleId('shot'),
+      order: Number(item.order || index + 1),
+      folderId: folderByEpisode.get(episode) || null,
+      sceneId: scene?.id || null,
+      characterIds,
+      propIds,
+      prompt: item.prompt || '',
+      duration: Number(item.duration || project.settings?.defaultDuration || 5),
+      ratio: project.settings?.ratio || '16:9',
+      imageUrls: [],
+      imagePaths: [],
+      taskId: null,
+      status: 'pending',
+      videoUrl: null,
+      videoPath: null,
+      sourceVideoUrl: null,
+      referenceVideoUrl: null,
+      referenceVideoSourceShortId: null,
+      firstFrameUrl: null,
+      lastFrameUrl: null,
+      audioUrls: [],
+      modelOverride: null,
+      generateAudioOverride: null,
+      watermark: false,
+      error: null,
+      shotType: item.shotType || null,
+      cameraMovement: item.cameraMovement || null,
+      cameraAngle: item.cameraAngle || null,
+      lighting: item.lighting || null,
+      emotion: item.emotion || null,
+      stableVariables: item.stableVariables || null,
+      enhanced: false,
+      dialogue: item.dialogue || '',
+      narration: item.narration || '',
+    };
+  });
+
+  project.status = 'editing';
+  project.pipelineStage = 'parsed';
+  return document;
+}
+
 export function setProjectStage(document, pipelineStage, status) {
   if (!document?.project) throw new Error('Project document missing');
   if (pipelineStage) document.project.pipelineStage = pipelineStage;
