@@ -1,0 +1,11 @@
+{
+  "name": "ai-movie",
+  "version": "0.1.0",
+  "private": true,
+  "bin": {
+    "aimm": "./cli/aimm.mjs"
+  },
+  "scripts": {
+    "check:cli": "node --check ./cli/aimm.mjs && node --check ./core/project.mjs"
+  }
+}

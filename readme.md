@@ -31,3 +31,18 @@ Turn any script or story into a series of AI-generated short video clips using S
 - keepworkSDK (auth + persistence)
 - Seedance API (video generation)
 - Keepwork GPT API (script analysis)
+
+## CLI (Step 1)
+
+The repository now includes an initial CLI layer for project-file workflows.
+
+Examples:
+
+```bash
+node cli/aimm.mjs create "My Brand Film"
+node cli/aimm.mjs inspect ./My\ Brand\ Film.aimovie.md
+node cli/aimm.mjs import-aimovie ./existing.aimovie.md ./copied-project.aimovie.md
+```
+
+This first step only handles project creation and `.aimovie.md` file import/inspection.
+Image generation, analysis, video generation, and xlsx import will be added incrementally on top of the same core.
