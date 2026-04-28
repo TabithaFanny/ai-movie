@@ -18,7 +18,15 @@ const APP_DEFAULTS = {
 };
 
 // ---- LocalAPIKeySettings init ----
-const _localSettings = sdk.localAPIKeySettings;
+const _localSettings = sdk?.localAPIKeySettings || {
+    enabled: false,
+    async load() {},
+    resolve() { return null; },
+    async save() {},
+    show() {
+        throw new Error('当前 Keepwork SDK 不支持本地 API Key 管理');
+    },
+};
 //_localSettings.workspace = CONFIG.PROJECT_WORKSPACE;
 //_localSettings.storageMode = 'personalPageStore';
 
@@ -53,7 +61,7 @@ function saveAppSettings(settings) {
 }
 
 function hasConfiguredApiKey(modelName) {
-    const resolved = _localSettings.resolve(modelName);
+    const resolved = _localSettings?.resolve?.(modelName);
     return !!resolved?.apiKey;
 }
 
@@ -66,18 +74,18 @@ export function getGlobalVideoModel() { return loadAppSettings().videoModel || A
 export function getGlobalLLM() { return getGlobalChatModel(); }
 
 export function getGlobalLLMApiKey() {
-    const resolved = _localSettings.resolve(getGlobalChatModel());
+    const resolved = _localSettings?.resolve?.(getGlobalChatModel());
     return resolved?.apiKey || '';
 }
 
 export function getGlobalImageApiKey() {
     const imageModel = getGlobalImageModel();
-    const resolved = _localSettings.resolve(imageModel === 'gpt-image-2' ? 'gpt-image-2' : (imageModel || 'keepwork-image'));
+    const resolved = _localSettings?.resolve?.(imageModel === 'gpt-image-2' ? 'gpt-image-2' : (imageModel || 'keepwork-image'));
     return resolved?.apiKey || '';
 }
 
 export function getGlobalVideoApiKey() {
-    const resolved = _localSettings.resolve(getGlobalVideoModel() || 'keepwork-video');
+    const resolved = _localSettings?.resolve?.(getGlobalVideoModel() || 'keepwork-video');
     return resolved?.apiKey || '';
 }
 
@@ -316,13 +324,13 @@ export function showSettingsModal() {
           </div>
           <div class="gs-row">
             <label class="gs-checkbox">
-              <input type="checkbox" id="gsEnableLocalAPI" ${_localSettings.enabled ? 'checked' : ''} />
+              <input type="checkbox" id="gsEnableLocalAPI" ${_localSettings?.enabled ? 'checked' : ''} />
               <span>启用本地 API Key</span>
             </label>
           </div>
           <div class="gs-row">
             <button class="gs-btn gs-btn-secondary" data-gs-open-api>🔑 配置 API Key…</button>
-            <div class="gs-hint">管理各服务商的本地 API Key 与模型映射。若图片走 <code>gpt-image-2</code>，请确保已在此处给 <code>gpt-image-2</code> 配置 key。</div>
+            <div class="gs-hint">管理各服务商的本地 API Key 与模型映射。若图片走 `gpt-image-2`，请确保已在此处给 `gpt-image-2` 配置 key。</div>
           </div>
           <div class="gs-row">
             <label class="gs-checkbox">
@@ -363,15 +371,22 @@ export function showSettingsModal() {
     });
     overlay.querySelector('#gsEnableLocalAPI').addEventListener('change', (e) => {
         _localSettings.enabled = e.target.checked;
-        _localSettings.save();
+        Promise.resolve(_localSettings.save?.()).catch(error => {
+            console.warn('[AIMM] localAPIKeySettings.save failed:', error);
+        });
     });
     overlay.querySelector('[data-gs-open-api]').addEventListener('click', () => {
-        _localSettings.show({
-            onClose: () => {
-                const cb = overlay.querySelector('#gsEnableLocalAPI');
-                if (cb) cb.checked = !!_localSettings.enabled;
-            },
-        });
+        try {
+            _localSettings.show({
+                onClose: () => {
+                    const cb = overlay.querySelector('#gsEnableLocalAPI');
+                    if (cb) cb.checked = !!_localSettings.enabled;
+                },
+            });
+        } catch (error) {
+            console.warn('[AIMM] localAPIKeySettings.show failed:', error);
+            alert(error.message || '当前 Keepwork SDK 不支持本地 API Key 管理');
+        }
     });
     overlay.querySelector('[data-gs-save]').addEventListener('click', () => {
         saveAppSettings(readValues(overlay));
