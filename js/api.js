@@ -6,7 +6,7 @@ import { state, sdk, syncShortReferenceVideoUrl, syncReferenceVideoDependents } 
 import { showToast } from './utils.js';
 import { getProjectAssetFolder, getProjectWorkspace, getProjectWorkspaceStore, updateTaskLogEntry, saveAssetToLocal } from './storage.js';
 import { recordLLMCall, recordImageCall, recordVideoCall, updateVideoCallUsage } from './stats.js';
-import { getGlobalPromptPreset } from './global_settings.js';
+import { getGlobalPromptPreset, getGlobalAnalysisProvider, getGlobalLocalApiBase } from './global_settings.js';
 
 /** Resolve prompt preset: project-level > global setting */
 function getProjectPromptPreset(project) {
@@ -207,6 +207,34 @@ export async function llmChat(systemPrompt, userMessage) {
     return JSON.parse(content);
 }
 
+async function postLocalJson(path, payload) {
+    const baseUrl = getGlobalLocalApiBase().replace(/\/+$/, '');
+    const response = await fetch(`${baseUrl}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(`本地接口请求失败: HTTP ${response.status}${text ? ` - ${text}` : ''}`);
+    }
+    return await response.json();
+}
+
+async function analyzeScriptViaLocal(systemPrompt, userMessage, onChunk) {
+    const { getGlobalLLMApiKey } = await import('./global_settings.js');
+    const payload = {
+        systemPrompt,
+        userMessage,
+        apiBase: state.apiBase,
+        token: state.token,
+        apiKey: getGlobalLLMApiKey(),
+    };
+    const result = await postLocalJson('/api/analyze-script', payload);
+    if (onChunk) onChunk(JSON.stringify(result, null, 2));
+    return result;
+}
+
 // ---- LLM Chat (streaming via KeepworkSDK aiChat) ----
 /**
  * Stream LLM response using KeepworkSDK aiChat session.
@@ -320,11 +348,19 @@ export function getAnalyzeScriptPrompt(script, totalDuration, langCode, episodeC
 }
 
 export async function analyzeScript(script, totalDuration, onChunk, langCode, episodeCount, customPrompt, promptPreset, options = {}) {
+    const useLocalAnalysis = getGlobalAnalysisProvider() === 'local';
     if (customPrompt) {
-        return await llmChatStream(customPrompt, `Total movie duration: ${totalDuration} minutes.${episodeCount > 1 ? ` Total episodes: ${episodeCount}.` : ''}\n\nScript:\n${script}`, onChunk, '分析剧本');
+        const userMessage = `Total movie duration: ${totalDuration} minutes.${episodeCount > 1 ? ` Total episodes: ${episodeCount}.` : ''}\n\nScript:\n${script}`;
+        if (useLocalAnalysis) {
+            return await analyzeScriptViaLocal(customPrompt, userMessage, onChunk);
+        }
+        return await llmChatStream(customPrompt, userMessage, onChunk, '分析剧本');
     }
     await ensurePresetLoaded(promptPreset || getGlobalPromptPreset());
     const { systemPrompt, userMsg } = getAnalyzeScriptPrompt(script, totalDuration, langCode, episodeCount, promptPreset, options);
+    if (useLocalAnalysis) {
+        return await analyzeScriptViaLocal(systemPrompt, userMsg, onChunk);
+    }
     return await llmChatStream(systemPrompt, userMsg, onChunk, '分析剧本');
 }
 
@@ -1135,6 +1171,62 @@ export async function genImage(prompt, options = {}) {
 
     const t0 = Date.now();
     try {
+        if (effectiveModel === 'gpt-image-2') {
+            const { getGlobalImageApiKey } = await import('./global_settings.js');
+            const apiKey = getGlobalImageApiKey();
+            if (!apiKey) throw new Error('未配置 gpt-image-2 的 API Key');
+
+            const size = width === height
+                ? '1024x1024'
+                : width > height
+                    ? '1536x1024'
+                    : '1024x1536';
+
+            const hasReferenceImages = Array.isArray(images) && images.length > 0;
+            const endpoint = hasReferenceImages
+                ? 'https://main-new.codesuc.top/v1/images/edits'
+                : 'https://main-new.codesuc.top/v1/images/generations';
+            const body = hasReferenceImages
+                ? {
+                    model: 'gpt-image-2',
+                    prompt,
+                    images: images
+                        .map(image => String(image?.url || '').trim())
+                        .filter(Boolean)
+                        .slice(0, 16)
+                        .map(imageUrl => ({ image_url: imageUrl })),
+                    n: 1,
+                    size,
+                    quality: 'medium',
+                }
+                : {
+                    model: 'gpt-image-2',
+                    prompt,
+                    n: 1,
+                    size,
+                    quality: 'medium',
+                };
+
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(body),
+            });
+            if (!response.ok) {
+                const text = await response.text().catch(() => '');
+                throw new Error(`gpt-image-2 请求失败: HTTP ${response.status}${text ? ` - ${text}` : ''}`);
+            }
+            const data = await response.json();
+            const item = data?.data?.[0];
+            const url = item?.url || (item?.b64_json ? `data:image/png;base64,${item.b64_json}` : '');
+            if (!url) throw new Error('gpt-image-2 未返回图片 URL');
+            recordImageCall({ label: '生成图片', model: effectiveModel, success: true, durationMs: Date.now() - t0 });
+            return url;
+        }
+
         const url = await sdk.aiGenerators.genImage(prompt, {
             width, height, provider, model: effectiveModel, compressionRatio, images,
         });

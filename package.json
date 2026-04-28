@@ -1,0 +1,14 @@
+{
+  "name": "ai-movie",
+  "version": "0.1.0",
+  "private": true,
+  "bin": {
+    "aimm": "./cli/aimm.mjs"
+  },
+  "scripts": {
+    "check:cli": "node --check ./cli/aimm.mjs && node --check ./core/project.mjs && node --check ./core/image.mjs && node --check ./core/prompts.mjs && node --check ./core/analyze.mjs && node --check ./core/video.mjs"
+  },
+  "dependencies": {
+    "xlsx": "^0.18.5"
+  }
+}
