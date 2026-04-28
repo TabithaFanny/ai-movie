@@ -268,6 +268,15 @@ export function updateShotStatus(document, shotOrder, updates = {}) {
   return shot;
 }
 
+export function getShotByOrder(document, shotOrder) {
+  if (!document?.project?.shorts) throw new Error('Project document has no shorts');
+  const targetOrder = Number(shotOrder);
+  if (!Number.isFinite(targetOrder)) throw new Error(`Invalid shot order: ${shotOrder}`);
+  const shot = document.project.shorts.find(item => Number(item.order) === targetOrder);
+  if (!shot) throw new Error(`Shot not found: ${shotOrder}`);
+  return shot;
+}
+
 function normalizeCell(value) {
   return value == null ? '' : String(value).trim();
 }

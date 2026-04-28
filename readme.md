@@ -48,6 +48,11 @@ export AIMM_LLM_BASE=https://api.openai.com/v1
 export AIMM_LLM_MODEL=gpt-4.1-mini
 node cli/aimm.mjs prompt-analyze ./storyboard.aimovie.md
 node cli/aimm.mjs analyze ./storyboard.aimovie.md
+export AIMM_VIDEO_API_KEY=your_video_key
+export AIMM_VIDEO_BASE=https://api.openai.com/v1
+export AIMM_VIDEO_MODEL=seedance-2.0-fast
+node cli/aimm.mjs gen-video ./storyboard.aimovie.md 1
+node cli/aimm.mjs poll-video ./storyboard.aimovie.md 1
 node cli/aimm.mjs set-stage ./storyboard.aimovie.md generating generating
 node cli/aimm.mjs set-shot-status ./storyboard.aimovie.md 8 running
 node cli/aimm.mjs set-shot-status ./storyboard.aimovie.md 8 succeeded https://example.com/video.mp4
@@ -68,6 +73,7 @@ The CLI currently supports:
 - project stage updates for agent workflows
 - per-shot status updates for agent workflows
 - image generation for `characters`, `scenes`, `props`, and `picturebook`
+- video task submission and polling for individual shots
 
 The current xlsx importer assumes a storyboard-style sheet where:
 
@@ -83,6 +89,10 @@ Notes:
 
 - `analyze` uses a text LLM channel configured by `AIMM_LLM_API_KEY`, `AIMM_LLM_BASE`, and `AIMM_LLM_MODEL`
 - `gen-image` uses the image channel configured by `AIMM_IMAGE_API_KEY`, `AIMM_IMAGE_BASE`, and `AIMM_IMAGE_MODEL`
+- `gen-video` / `poll-video` use the video channel configured by `AIMM_VIDEO_API_KEY`, `AIMM_VIDEO_BASE`, `AIMM_VIDEO_MODEL`, and optional path overrides
+- optional overrides for nonstandard gateways:
+  `AIMM_VIDEO_SUBMIT_PATH=/videos/generations`
+  `AIMM_VIDEO_STATUS_TEMPLATE=/videos/generations/{taskId}`
 - if your image key is image-only, it will not work for `analyze`
 
 ## Agent-first direction

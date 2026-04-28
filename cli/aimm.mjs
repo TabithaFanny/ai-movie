@@ -5,6 +5,7 @@ import {
   createProject,
   createProjectFromStoryboardRows,
   describeProject,
+  getShotByOrder,
   loadAimovieFile,
   readStoryboardWorkbook,
   saveAimovieFile,
@@ -13,6 +14,7 @@ import {
 } from '../core/project.mjs';
 import { analyzeProjectDocument, buildAnalyzePrompt, getAnalysisRuntimeConfig } from '../core/analyze.mjs';
 import { generateImagesForScope, getImageRuntimeConfig } from '../core/image.mjs';
+import { fetchVideoTaskStatus, getVideoRuntimeConfig, submitVideoGeneration } from '../core/video.mjs';
 
 function usage() {
   console.log(`AIMM CLI
@@ -24,6 +26,8 @@ Usage:
   aimm import-xlsx <storyboard.xlsx> [output]
   aimm analyze <project.aimovie.md>
   aimm prompt-analyze <project.aimovie.md>
+  aimm gen-video <project.aimovie.md> <shotOrder>
+  aimm poll-video <project.aimovie.md> <shotOrder>
   aimm set-stage <project.aimovie.md> <pipelineStage> [status]
   aimm set-shot-status <project.aimovie.md> <shotOrder> <status> [videoUrl]
   aimm gen-image <project.aimovie.md> [scope]
@@ -154,6 +158,85 @@ async function cmdGenImage(args) {
   console.log(JSON.stringify({ project: written, scope, succeeded, failed, results }, null, 2));
 }
 
+async function cmdGenVideo(args) {
+  const [input, shotOrder] = args;
+  if (!input || !shotOrder) fail('gen-video requires <project> <shotOrder>');
+  const runtime = getVideoRuntimeConfig();
+  if (!runtime.apiKey) fail('Missing AIMM_VIDEO_API_KEY or OPENAI_API_KEY for video generation');
+  const doc = await loadAimovieFile(input);
+  const shot = getShotByOrder(doc, shotOrder);
+  const result = await submitVideoGeneration(shot, doc.project);
+  doc.project.settings = doc.project.settings || {};
+  doc.project.settings.model = shot.modelOverride || doc.project.settings.model || runtime.model;
+  doc.project.settings.videoBaseUrl = runtime.baseUrl;
+  shot.taskId = result.taskId;
+  shot.status = 'running';
+  shot.error = null;
+  doc.project.status = 'generating';
+  doc.project.pipelineStage = 'generating';
+  const written = await saveAimovieFile(input, doc);
+  console.log(JSON.stringify({
+    project: written,
+    shotOrder: Number(shot.order),
+    taskId: result.taskId,
+    model: result.request.model,
+    duration: result.request.duration,
+    ratio: result.request.ratio,
+    hasImages: Array.isArray(result.request.images) && result.request.images.length > 0,
+    hasVideos: Array.isArray(result.request.videos) && result.request.videos.length > 0,
+    hasAudios: Array.isArray(result.request.audios) && result.request.audios.length > 0,
+  }, null, 2));
+}
+
+async function cmdPollVideo(args) {
+  const [input, shotOrder] = args;
+  if (!input || !shotOrder) fail('poll-video requires <project> <shotOrder>');
+  const runtime = getVideoRuntimeConfig();
+  if (!runtime.apiKey) fail('Missing AIMM_VIDEO_API_KEY or OPENAI_API_KEY for video generation');
+  const doc = await loadAimovieFile(input);
+  const shot = getShotByOrder(doc, shotOrder);
+  if (!shot.taskId) fail(`Shot #${shot.order} has no taskId`);
+  const result = await fetchVideoTaskStatus(shot.taskId);
+  shot.status = result.status;
+  if (result.videoUrl) {
+    shot.videoUrl = result.videoUrl;
+    shot.sourceVideoUrl = result.videoUrl;
+    shot.error = null;
+    shot.videoCandidates = Array.isArray(shot.videoCandidates) ? shot.videoCandidates : [];
+    if (!shot.videoCandidates.some(candidate => candidate.url === result.videoUrl)) {
+      shot.videoCandidates.push({
+        url: result.videoUrl,
+        path: null,
+        sourceUrl: result.videoUrl,
+        createdAt: new Date().toISOString(),
+      });
+    }
+  }
+  if (result.status === 'failed') {
+    shot.error = result.error?.message || result.error || 'Video generation failed';
+  }
+  if (result.status === 'succeeded' && result.videoUrl) {
+    doc.project.pipelineStage = 'completed';
+    doc.project.status = doc.project.shorts.every(item => item.status === 'succeeded' || item.status === 'failed')
+      ? 'completed'
+      : 'editing';
+  } else if (result.status === 'running' || result.status === 'queued' || result.status === 'submitted') {
+    doc.project.pipelineStage = 'generating';
+    doc.project.status = 'generating';
+  } else if (result.status === 'failed') {
+    doc.project.status = 'editing';
+  }
+  const written = await saveAimovieFile(input, doc);
+  console.log(JSON.stringify({
+    project: written,
+    shotOrder: Number(shot.order),
+    taskId: shot.taskId,
+    status: result.status,
+    videoUrl: result.videoUrl,
+    error: result.error || null,
+  }, null, 2));
+}
+
 async function main() {
   const [, , command, ...args] = process.argv;
   if (!command || command === '--help' || command === '-h') {
@@ -179,6 +262,12 @@ async function main() {
       return;
     case 'prompt-analyze':
       await cmdPromptAnalyze(args);
+      return;
+    case 'gen-video':
+      await cmdGenVideo(args);
+      return;
+    case 'poll-video':
+      await cmdPollVideo(args);
       return;
     case 'set-stage':
       await cmdSetStage(args);
