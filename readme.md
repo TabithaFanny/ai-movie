@@ -46,6 +46,12 @@ node cli/aimm.mjs import-xlsx ./storyboard.xlsx ./storyboard.aimovie.md
 node cli/aimm.mjs set-stage ./storyboard.aimovie.md generating generating
 node cli/aimm.mjs set-shot-status ./storyboard.aimovie.md 8 running
 node cli/aimm.mjs set-shot-status ./storyboard.aimovie.md 8 succeeded https://example.com/video.mp4
+export AIMM_IMAGE_API_KEY=your_key
+export AIMM_IMAGE_BASE=https://main-new.codesuc.top/v1
+export AIMM_IMAGE_MODEL=gpt-image-2
+node cli/aimm.mjs gen-image ./storyboard.aimovie.md characters
+node cli/aimm.mjs gen-image ./storyboard.aimovie.md scenes
+node cli/aimm.mjs gen-image ./storyboard.aimovie.md picturebook
 ```
 
 The CLI currently supports:
@@ -55,6 +61,7 @@ The CLI currently supports:
 - first-pass storyboard `.xlsx` import
 - project stage updates for agent workflows
 - per-shot status updates for agent workflows
+- image generation for `characters`, `scenes`, `props`, and `picturebook`
 
 The current xlsx importer assumes a storyboard-style sheet where:
 

@@ -11,6 +11,7 @@ import {
   setProjectStage,
   updateShotStatus,
 } from '../core/project.mjs';
+import { generateImagesForScope, getImageRuntimeConfig } from '../core/image.mjs';
 
 function usage() {
   console.log(`AIMM CLI
@@ -22,6 +23,7 @@ Usage:
   aimm import-xlsx <storyboard.xlsx> [output]
   aimm set-stage <project.aimovie.md> <pipelineStage> [status]
   aimm set-shot-status <project.aimovie.md> <shotOrder> <status> [videoUrl]
+  aimm gen-image <project.aimovie.md> [scope]
 `);
 }
 
@@ -90,6 +92,34 @@ async function cmdSetShotStatus(args) {
   console.log(`Updated shot #${shot.order}: ${written} -> ${shot.status}`);
 }
 
+async function cmdGenImage(args) {
+  const [input, scope = 'characters'] = args;
+  if (!input) fail('gen-image requires <project> [scope]');
+  const doc = await loadAimovieFile(input);
+  const project = doc.project;
+  const runtime = getImageRuntimeConfig();
+  if (!runtime.apiKey) {
+    fail('Missing AIMM_IMAGE_API_KEY or OPENAI_API_KEY for image generation');
+  }
+  project.settings = project.settings || {};
+  project.settings.imageModel = runtime.model;
+  project.settings.imageBaseUrl = runtime.baseUrl;
+  project.pipelineStage = project.pipelineStage === 'draft' ? 'parsed' : project.pipelineStage;
+  const results = await generateImagesForScope(project, scope);
+  const succeeded = results.filter(item => item.status === 'succeeded').length;
+  const failed = results.filter(item => item.status === 'failed').length;
+  if (scope === 'picturebook') {
+    if (succeeded > 0) project.pipelineStage = 'enhanced';
+  } else if (succeeded > 0) {
+    project.pipelineStage = 'enhanced';
+  }
+  if (failed > 0 && succeeded === 0) {
+    project.status = 'editing';
+  }
+  const written = await saveAimovieFile(input, doc);
+  console.log(JSON.stringify({ project: written, scope, succeeded, failed, results }, null, 2));
+}
+
 async function main() {
   const [, , command, ...args] = process.argv;
   if (!command || command === '--help' || command === '-h') {
@@ -115,6 +145,9 @@ async function main() {
       return;
     case 'set-shot-status':
       await cmdSetShotStatus(args);
+      return;
+    case 'gen-image':
+      await cmdGenImage(args);
       return;
     default:
       fail(`unknown command "${command}"`);

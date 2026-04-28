@@ -6,7 +6,7 @@
     "aimm": "./cli/aimm.mjs"
   },
   "scripts": {
-    "check:cli": "node --check ./cli/aimm.mjs && node --check ./core/project.mjs"
+    "check:cli": "node --check ./cli/aimm.mjs && node --check ./core/project.mjs && node --check ./core/image.mjs"
   },
   "dependencies": {
     "xlsx": "^0.18.5"
