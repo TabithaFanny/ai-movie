@@ -379,4 +379,9 @@ async function init() {
     maybeShowHelpOnFirstUse();
 }
 
-init();
+init().catch(error => {
+    console.error('[AIMM] app init failed:', error);
+    try {
+        showToast(`应用启动失败: ${error.message || error}`, 'error');
+    } catch (_) {}
+});

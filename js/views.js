@@ -183,7 +183,19 @@ export function navigateTo(view) {
     updateSidebarHighlight(view);
     updateMobileBottomBar(view);
     const renderers = { projectList: renderProjectList, breakdown: renderBreakdown, generation: renderGeneration, preview: renderPreview, clipEditor: renderClipEditorView, mp4ToWebp: renderMp4ToWebpView };
-    if (renderers[view]) renderers[view]();
+    if (!renderers[view]) return;
+    try {
+        const result = renderers[view]();
+        if (result && typeof result.then === 'function') {
+            result.catch(error => {
+                console.error(`[AIMM] render ${view} failed:`, error);
+                showToast(`页面加载失败: ${error.message || error}`, 'error');
+            });
+        }
+    } catch (error) {
+        console.error(`[AIMM] render ${view} failed:`, error);
+        showToast(`页面加载失败: ${error.message || error}`, 'error');
+    }
 }
 
 export function updateSidebarHighlight(view) {
