@@ -43,6 +43,9 @@ node cli/aimm.mjs create "My Brand Film"
 node cli/aimm.mjs inspect ./My\ Brand\ Film.aimovie.md
 node cli/aimm.mjs import-aimovie ./existing.aimovie.md ./copied-project.aimovie.md
 node cli/aimm.mjs import-xlsx ./storyboard.xlsx ./storyboard.aimovie.md
+node cli/aimm.mjs set-stage ./storyboard.aimovie.md generating generating
+node cli/aimm.mjs set-shot-status ./storyboard.aimovie.md 8 running
+node cli/aimm.mjs set-shot-status ./storyboard.aimovie.md 8 succeeded https://example.com/video.mp4
 ```
 
 The CLI currently supports:
@@ -50,6 +53,8 @@ The CLI currently supports:
 - project creation
 - `.aimovie.md` import / inspection
 - first-pass storyboard `.xlsx` import
+- project stage updates for agent workflows
+- per-shot status updates for agent workflows
 
 The current xlsx importer assumes a storyboard-style sheet where:
 
@@ -60,3 +65,12 @@ The current xlsx importer assumes a storyboard-style sheet where:
   `时间段 | 章节名称 | 镜头号 | 画面 | 画面参考 | 字幕 | 旁白 | 背景音效/音乐`
 
 Image generation, analysis, and video generation will be added incrementally on top of the same core.
+
+## Agent-first direction
+
+The CLI is being evolved as an agent-operable runtime, not only a human convenience layer.
+The intended workflow is:
+
+- agent advances the project through CLI/core operations
+- `.aimovie.md` remains the durable source of truth
+- frontend reads and visualizes the updated project state

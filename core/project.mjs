@@ -99,9 +99,15 @@ export async function saveAimovieFile(filePath, document) {
 
 export function describeProject(document) {
   const project = document.project || {};
+  const shorts = Array.isArray(project.shorts) ? project.shorts : [];
+  const byStatus = shorts.reduce((acc, short) => {
+    const key = short.status || 'unknown';
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
   return {
     title: project.title || document.summary?.title || '未命名项目',
-    shorts: Array.isArray(project.shorts) ? project.shorts.length : 0,
+    shorts: shorts.length,
     characters: Array.isArray(project.characters) ? project.characters.length : 0,
     scenes: Array.isArray(project.scenes) ? project.scenes.length : 0,
     ratio: project.settings?.ratio || '16:9',
@@ -109,7 +115,46 @@ export function describeProject(document) {
     videoModel: project.settings?.model || null,
     status: project.status || 'unknown',
     pipelineStage: project.pipelineStage || 'unknown',
+    shortStatusCounts: byStatus,
   };
+}
+
+export function setProjectStage(document, pipelineStage, status) {
+  if (!document?.project) throw new Error('Project document missing');
+  if (pipelineStage) document.project.pipelineStage = pipelineStage;
+  if (status) document.project.status = status;
+  return document;
+}
+
+export function updateShotStatus(document, shotOrder, updates = {}) {
+  if (!document?.project?.shorts) throw new Error('Project document has no shorts');
+  const targetOrder = Number(shotOrder);
+  if (!Number.isFinite(targetOrder)) throw new Error(`Invalid shot order: ${shotOrder}`);
+  const shot = document.project.shorts.find(item => Number(item.order) === targetOrder);
+  if (!shot) throw new Error(`Shot not found: ${shotOrder}`);
+
+  const allowedKeys = ['status', 'taskId', 'videoUrl', 'videoPath', 'sourceVideoUrl', 'referenceVideoUrl', 'error', 'picturebookStatus', 'picturebookUrl', 'picturebookError'];
+  for (const [key, value] of Object.entries(updates)) {
+    if (value === undefined || value === null || value === '') continue;
+    if (!allowedKeys.includes(key)) continue;
+    shot[key] = value;
+  }
+
+  if (updates.clearError) shot.error = null;
+  if (updates.clearTaskId) shot.taskId = null;
+
+  if (shot.status === 'succeeded' && shot.videoUrl) {
+    document.project.status = document.project.shorts.every(item => item.status === 'succeeded' || item.status === 'failed')
+      ? 'completed'
+      : (document.project.status || 'editing');
+  } else if (shot.status === 'running') {
+    document.project.status = 'generating';
+    document.project.pipelineStage = 'generating';
+  } else if (shot.status === 'failed' && document.project.status === 'idle') {
+    document.project.status = 'editing';
+  }
+
+  return shot;
 }
 
 function normalizeCell(value) {

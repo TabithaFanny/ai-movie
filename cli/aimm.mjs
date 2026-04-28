@@ -8,6 +8,8 @@ import {
   loadAimovieFile,
   readStoryboardWorkbook,
   saveAimovieFile,
+  setProjectStage,
+  updateShotStatus,
 } from '../core/project.mjs';
 
 function usage() {
@@ -18,6 +20,8 @@ Usage:
   aimm inspect <project.aimovie.md>
   aimm import-aimovie <input.aimovie.md> [output]
   aimm import-xlsx <storyboard.xlsx> [output]
+  aimm set-stage <project.aimovie.md> <pipelineStage> [status]
+  aimm set-shot-status <project.aimovie.md> <shotOrder> <status> [videoUrl]
 `);
 }
 
@@ -63,6 +67,29 @@ async function cmdImportXlsx(args) {
   console.log(`Imported storyboard workbook: ${written}`);
 }
 
+async function cmdSetStage(args) {
+  const [input, pipelineStage, status] = args;
+  if (!input || !pipelineStage) fail('set-stage requires <project> <pipelineStage> [status]');
+  const doc = await loadAimovieFile(input);
+  setProjectStage(doc, pipelineStage, status);
+  const written = await saveAimovieFile(input, doc);
+  console.log(`Updated stage: ${written} -> ${pipelineStage}${status ? ` (${status})` : ''}`);
+}
+
+async function cmdSetShotStatus(args) {
+  const [input, shotOrder, status, videoUrl] = args;
+  if (!input || !shotOrder || !status) fail('set-shot-status requires <project> <shotOrder> <status> [videoUrl]');
+  const doc = await loadAimovieFile(input);
+  const shot = updateShotStatus(doc, shotOrder, {
+    status,
+    videoUrl,
+    clearError: status === 'pending' || status === 'succeeded',
+    clearTaskId: status === 'pending',
+  });
+  const written = await saveAimovieFile(input, doc);
+  console.log(`Updated shot #${shot.order}: ${written} -> ${shot.status}`);
+}
+
 async function main() {
   const [, , command, ...args] = process.argv;
   if (!command || command === '--help' || command === '-h') {
@@ -82,6 +109,12 @@ async function main() {
       return;
     case 'import-xlsx':
       await cmdImportXlsx(args);
+      return;
+    case 'set-stage':
+      await cmdSetStage(args);
+      return;
+    case 'set-shot-status':
+      await cmdSetShotStatus(args);
       return;
     default:
       fail(`unknown command "${command}"`);
