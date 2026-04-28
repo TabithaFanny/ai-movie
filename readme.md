@@ -42,7 +42,21 @@ Examples:
 node cli/aimm.mjs create "My Brand Film"
 node cli/aimm.mjs inspect ./My\ Brand\ Film.aimovie.md
 node cli/aimm.mjs import-aimovie ./existing.aimovie.md ./copied-project.aimovie.md
+node cli/aimm.mjs import-xlsx ./storyboard.xlsx ./storyboard.aimovie.md
 ```
 
-This first step only handles project creation and `.aimovie.md` file import/inspection.
-Image generation, analysis, video generation, and xlsx import will be added incrementally on top of the same core.
+The CLI currently supports:
+
+- project creation
+- `.aimovie.md` import / inspection
+- first-pass storyboard `.xlsx` import
+
+The current xlsx importer assumes a storyboard-style sheet where:
+
+- row 1 is a document title
+- row 2 is headers
+- row 3+ contains concept rows and shot rows
+- columns follow the pattern:
+  `时间段 | 章节名称 | 镜头号 | 画面 | 画面参考 | 字幕 | 旁白 | 背景音效/音乐`
+
+Image generation, analysis, and video generation will be added incrementally on top of the same core.

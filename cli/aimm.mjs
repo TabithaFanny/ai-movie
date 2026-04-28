@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 
 import path from 'path';
-import { createProject, describeProject, loadAimovieFile, saveAimovieFile } from '../core/project.mjs';
+import {
+  createProject,
+  createProjectFromStoryboardRows,
+  describeProject,
+  loadAimovieFile,
+  readStoryboardWorkbook,
+  saveAimovieFile,
+} from '../core/project.mjs';
 
 function usage() {
   console.log(`AIMM CLI
@@ -10,6 +17,7 @@ Usage:
   aimm create <title> [output]
   aimm inspect <project.aimovie.md>
   aimm import-aimovie <input.aimovie.md> [output]
+  aimm import-xlsx <storyboard.xlsx> [output]
 `);
 }
 
@@ -44,6 +52,17 @@ async function cmdImportAimovie(args) {
   console.log(`Imported project: ${written}`);
 }
 
+async function cmdImportXlsx(args) {
+  const [input, output] = args;
+  if (!input) fail('import-xlsx requires an xlsx file');
+  const rows = readStoryboardWorkbook(input);
+  const title = path.basename(input, path.extname(input));
+  const doc = createProjectFromStoryboardRows(title, rows);
+  const target = output || path.resolve(process.cwd(), `${title}.aimovie.md`);
+  const written = await saveAimovieFile(target, doc);
+  console.log(`Imported storyboard workbook: ${written}`);
+}
+
 async function main() {
   const [, , command, ...args] = process.argv;
   if (!command || command === '--help' || command === '-h') {
@@ -60,6 +79,9 @@ async function main() {
       return;
     case 'import-aimovie':
       await cmdImportAimovie(args);
+      return;
+    case 'import-xlsx':
+      await cmdImportXlsx(args);
       return;
     default:
       fail(`unknown command "${command}"`);
