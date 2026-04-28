@@ -104,6 +104,13 @@ async function refreshAuthUI() {
     }
 }
 
+async function refreshAuthUIWithTimeout(timeoutMs = 4000) {
+    return await Promise.race([
+        refreshAuthUI(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error(`refreshAuthUI timeout after ${timeoutMs}ms`)), timeoutMs)),
+    ]);
+}
+
 function destroyWorkspaceViewer() {
     if (workspaceViewerInstance && typeof workspaceViewerInstance.destroy === 'function') {
         workspaceViewerInstance.destroy();
@@ -341,6 +348,10 @@ async function init() {
     $('workspaceViewerClose').onclick = closeWorkspaceViewer;
     $('imgPreview').onclick = () => $('imgPreview').classList.add('hidden');
 
+    // Render shell content first so the page never stays blank if a later
+    // Keepwork SDK call is slow or unavailable.
+    navigateTo('projectList');
+
     // Escape key
     document.addEventListener('keydown', e => {
         if (e.key === 'Escape') {
@@ -353,10 +364,18 @@ async function init() {
         }
     });
 
-    await refreshAuthUI();
-    initHelp();
-    initHoverPreview();
-    initImageClipboard();
+    try {
+        await refreshAuthUIWithTimeout();
+    } catch (error) {
+        console.warn('[AIMM] refreshAuthUI failed:', error);
+        $('userName').textContent = '';
+        $('userProfileBtn').classList.add('hidden');
+        $('menuWorkspaceBtn').classList.add('disabled');
+        $('loginBtn').classList.remove('hidden');
+    }
+    try { initHelp(); } catch (error) { console.warn('[AIMM] initHelp failed:', error); }
+    try { initHoverPreview(); } catch (error) { console.warn('[AIMM] initHoverPreview failed:', error); }
+    try { initImageClipboard(); } catch (error) { console.warn('[AIMM] initImageClipboard failed:', error); }
 
     // Mobile bottom bar
     $('mobileHamburger').onclick = () => toggleMobileSidebar();
@@ -375,7 +394,6 @@ async function init() {
     };
     $('mobTabMore').onclick = () => toggleMobileSidebar();
 
-    navigateTo('projectList');
     maybeShowHelpOnFirstUse();
 }
 
